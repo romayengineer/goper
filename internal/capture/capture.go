@@ -1,0 +1,136 @@
+package capture
+
+import (
+	"bytes"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type ResponseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+	headers    http.Header
+}
+
+func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
+	return &ResponseRecorder{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		headers:        w.Header().Clone(),
+	}
+}
+
+func (r *ResponseRecorder) WriteHeader(code int) {
+	r.statusCode = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *ResponseRecorder) Write(b []byte) (int, error) {
+	r.body.Write(b)
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *ResponseRecorder) StatusCode() int {
+	return r.statusCode
+}
+
+func (r *ResponseRecorder) Body() []byte {
+	return r.body.Bytes()
+}
+
+func headersToMap(h http.Header) map[string]string {
+	m := make(map[string]string, len(h))
+	for k, v := range h {
+		lower := strings.ToLower(k)
+		if lower == "authorization" || lower == "cookie" || lower == "set-cookie" || lower == "proxy-authorization" {
+			m[k] = "***REDACTED***"
+			continue
+		}
+		if len(v) == 1 {
+			m[k] = v[0]
+		} else {
+			m[k] = strings.Join(v, ", ")
+		}
+	}
+	return m
+}
+
+func CaptureRequest(req *http.Request) CapturedEntry {
+	entry := CapturedEntry{
+		Method:         req.Method,
+		URL:            req.URL.String(),
+		Scheme:         req.URL.Scheme,
+		Host:           req.URL.Host,
+		Path:           req.URL.Path,
+		RequestHeaders: headersToMap(req.Header),
+	}
+
+	if req.Body != nil {
+		bodyBytes, err := io.ReadAll(req.Body)
+		if err == nil {
+			s := string(bodyBytes)
+			entry.RequestBody = &s
+			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+	}
+
+	return entry
+}
+
+type CaptureResult struct {
+	StatusCode      int
+	ResponseHeaders map[string]string
+	ResponseBody    *string
+	ContentType     string
+	DurationMs      int64
+}
+
+func CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start time.Time) CaptureResult {
+	cr := CaptureResult{
+		StatusCode:      statusCode,
+		ResponseHeaders: headersToMap(header),
+		DurationMs:      time.Since(start).Milliseconds(),
+		ContentType:     header.Get("Content-Type"),
+	}
+
+	if len(bodyBytes) > 0 && len(bodyBytes) < 1*1024*1024 {
+		s := string(bodyBytes)
+		if isPrintable(s) || isJSON(cr.ContentType) {
+			cr.ResponseBody = &s
+		}
+	}
+
+	return cr
+}
+
+func isJSON(contentType string) bool {
+	ct := strings.ToLower(contentType)
+	return strings.Contains(ct, "application/json") ||
+		strings.Contains(ct, "application/vnd.api+json") ||
+		strings.Contains(ct, "application/problem+json")
+}
+
+func isPrintable(s string) bool {
+	for _, r := range s {
+		if r < 32 && r != '\n' && r != '\r' && r != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+func CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry {
+	reqEntry.StatusCode = result.StatusCode
+	reqEntry.ResponseHeaders = result.ResponseHeaders
+	reqEntry.ResponseBody = result.ResponseBody
+	reqEntry.ContentType = result.ContentType
+	reqEntry.DurationMs = result.DurationMs
+
+	reqEntry.ID = NewEntryID()
+	reqEntry.Timestamp = time.Now()
+
+	return &reqEntry
+}
