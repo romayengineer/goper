@@ -57,9 +57,16 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-func composeArgs(args ...string) []string {
-	out := append([]string{"compose", "-p", composeProject}, composeFiles...)
+func composeProjectArgs(project string, files []string, args ...string) []string {
+	out := []string{"compose", "-p", project}
+	for _, f := range files {
+		out = append(out, "-f", f)
+	}
 	return append(out, args...)
+}
+
+func composeArgs(args ...string) []string {
+	return composeProjectArgs(composeProject, composeFiles, args...)
 }
 
 // compose runs a docker compose command in the repo root.

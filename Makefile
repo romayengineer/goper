@@ -2,7 +2,7 @@ BINARY=goper
 BUILD_DIR=.
 CMD_DIR=./cmd/goper
 
-.PHONY: build docker up down test test-unit test-integration test-e2e test-all cover cover-integration clean
+.PHONY: build docker up down test test-unit test-integration test-e2e test-e2e-mac test-all cover cover-integration setup-mac clean
 
 build:
 	go build -ldflags="-s -w" -o $(BINARY) $(CMD_DIR)
@@ -37,6 +37,18 @@ test-all:
 # full docker-compose workflow (goper + windowed Chrome + Playwright)
 test-e2e:
 	go test -tags=e2e ./test/e2e -v -count=1 -timeout 20m
+
+# macOS-only: open a real Chrome window on the Mac (via XQuartz) and run the workflow
+test-e2e-mac:
+	go test -tags=e2e ./test/e2e -run TestComposeChromeWorkflowMacWindow -v -count=1 -timeout 20m
+
+# one-time macOS setup for the Chrome window (XQuartz)
+setup-mac:
+	@echo "One-time macOS setup for the Chrome window:"
+	@echo "  brew install --cask xquartz"
+	@echo "  defaults write org.xquartz.X11 nolisten_tcp -bool false"
+	@echo "  open -a XQuartz"
+	@echo "  xhost +"
 
 # unit coverage
 cover:
