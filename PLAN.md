@@ -172,119 +172,33 @@ Sensitive headers (authorization, cookie, set-cookie) are redacted by default.
 
 ## Implementation Phases
 
-### Phase 1: Core Proxy + MITM (3-4 days)
+> Phase 1 (Core Proxy + MITM) is fully implemented and has been removed.
+> The remaining items below are the parts of each phase not yet implemented.
 
-- [ ] Initialize Go module, dependencies
-- [ ] Implement CA generation (`internal/proxy/mitm.go`)
-  - Generate RSA/ECDSA root CA
-  - Persist to disk, reload on restart
-  - Dynamic per-host cert generation with caching
-- [ ] Set up goproxy server (`internal/proxy/proxy.go`)
-  - HTTP forward proxy
-  - HTTPS CONNECT + MITM
-  - Verbose logging
-- [ ] CLI entrypoint (`cmd/goper/main.go`)
-  - `--port` flag (default 8080)
-  - `--api-port` flag (default 8081)
-  - `--ca-dir` flag (default `~/.goper/ca`)
-  - Signal handling (SIGTERM → graceful shutdown)
+### Phase 2: Transparent Mode + iptables
 
-**Deliverable**: `goper --port 8080` acts as a manual forward proxy (browser must configure proxy settings). Works for HTTP + HTTPS.
+- [ ] SNI parser fallback: resolve original IP to hostname via reverse DNS (currently falls back to the raw IP)
+- [ ] Use `go-iptables` library (currently shells out to the `iptables` binary)
 
-### Phase 2: Transparent Mode + iptables (2-3 days)
+### Phase 3: Capture Engine
 
-- [ ] Implement `SO_ORIGINAL_DST` extraction (`internal/proxy/transparent.go`)
-  - Platform check (Linux only)
-  - `unix.GetsockoptAny(fd, SOL_IP, SO_ORIGINAL_DST)`
-  - Parse returned `unix.RawSockaddrInet4` into IP:Port
-- [ ] Implement TLS ClientHello SNI parser
-  - Read first bytes, parse TLS record header
-  - Extract SNI extension without completing handshake
-  - Fallback: resolve original IP to hostname via reverse DNS
-- [ ] Implement transparent connection handler
-  - Detect HTTP vs HTTPS (peek first byte: `0x16` = TLS, otherwise HTTP)
-  - HTTP: read Host header → forward
-  - HTTPS: SNI + original dst → generate cert → MITM
-- [ ] Implement iptables manager (`internal/iptables/iptables.go`)
-  - `Setup()`: install NAT rules (owner-skip + redirect)
-  - `Teardown()`: remove rules on shutdown
-  - Use `go-iptables` library
-  - Run as root or with `CAP_NET_ADMIN`
-- [ ] Integrate into main entrypoint
+- [ ] `ResponseRecorder` wraps `http.ResponseWriter` + `http.Request` (currently captures from `*http.Response` in the response handler)
+- [ ] Configurable body size limit (currently hardcoded 1MB)
 
-**Deliverable**: `goper --transparent --port 8080` with iptables. Browser in same namespace is automatically intercepted.
+### Phase 4: HTTP API
 
-### Phase 3: Capture Engine (1-2 days)
+- [ ] Request-ID middleware
+- [ ] `GET /api/stats` — ring buffer stats + uptime (currently returns count only)
 
-- [ ] Define `CapturedEntry` struct (`internal/capture/entry.go`)
-- [ ] Implement `ResponseRecorder` (`internal/capture/capture.go`)
-  - Wraps `http.ResponseWriter` + `http.Request`
-  - Captures status, headers, body
-  - Body size limit (configurable, default 1MB)
-  - JSON content detection (`Content-Type: application/json`)
-- [ ] Implement `RingBuffer` store (`internal/capture/store.go`)
-  - Thread-safe via `sync.RWMutex`
-  - Configurable capacity (default 10,000 entries)
-  - Auto-eviction of oldest entries
-  - Methods: `Push`, `Get`, `List`, `Filter`, `Clear`, `Len`
-- [ ] Wire capture into proxy handler (both HTTP + HTTPS paths)
+### Phase 5: Docker & Packaging
 
-**Deliverable**: Intercepted traffic is parsed, JSON bodies extracted, stored in ring buffer.
+- [ ] `goper` service with `cap_add: NET_ADMIN` and two networks (`intercepted`, `upstream`)
+- [ ] `browser-app` with `network_mode: "service:goper"` (currently shares a bridge network with explicit `--proxy-server`)
 
-### Phase 4: HTTP API (2 days)
+### Phase 6: Integration Tests
 
-- [ ] Set up chi router with middleware (`internal/api/api.go`)
-  - Logging, panic recovery, CORS, request ID
-- [ ] Implement handlers (`internal/api/handlers.go`)
-  - `GET /api/requests` — paginated list with optional filters
-  - `GET /api/requests/{id}` — single entry detail
-  - `GET /api/requests/stream` — SSE using channel subscription pattern
-  - `DELETE /api/requests` — clear buffer
-  - `GET /api/ca.pem` — serve CA cert for download
-  - `GET /api/stats` — ring buffer stats, uptime
-- [ ] Add SSE for live feed
-  - Store maintains subscriber list
-  - New entries pushed to all subscribers
-  - Clients reconnect on disconnect
-
-**Deliverable**: Scraper can poll or subscribe to capture data via HTTP API.
-
-### Phase 5: Docker & Packaging (1 day)
-
-- [ ] Multi-stage `Dockerfile`
-  - Builder stage: `golang:1.22-alpine`
-  - Runtime stage: `alpine:3.19` with `ca-certificates`, `iptables`
-  - Copy binary, set `USER goper`
-- [ ] `docker-compose.yml`
-  - `goper` service with `cap_add: NET_ADMIN`, two networks
-  - `browser-app` with `network_mode: "service:goper"`
-- [ ] CA cert distribution
-  - On first run, goper generates CA and writes to mounted volume
-  - User copies to browser-app Dockerfile or bind-mounts
-  - Run `update-ca-certificates` in browser-app
-- [ ] `Makefile`
-  - `make build` — build binary
-  - `make docker` — build Docker image
-  - `make up` — docker-compose up
-  - `make test` — run tests
-
-**Deliverable**: Full Docker setup, one `docker compose up` to run.
-
-### Phase 6: Integration Tests (1-2 days)
-
-- [ ] Unit tests for each internal package
-  - Ring buffer concurrency, eviction
-  - Cert generation and caching
-  - SNI parser (with known test vectors)
-  - API handlers
-- [ ] Integration test
-  - Docker Compose test setup
-  - Container makes HTTP + HTTPS requests via curl
-  - Verify interception, verify API returns captured data
-  - Test CA cert installation
-  - Test iptables rule installation/removal
-
-**Deliverable**: CI-ready test suite.
+- [ ] Container makes HTTP + HTTPS requests via curl
+- [ ] Test iptables rule installation/removal in a real container
 
 ---
 
