@@ -3,35 +3,41 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    cap_add:
-      - NET_ADMIN
-    networks:
-      - intercepted
-      - upstream
+    networks: [goper-net]
     ports:
-      - "8081:8081"
+      - "8080:8080" # proxy (host access for debugging)
+      - "8081:8081" # API + CA download
     volumes:
       - goper-ca:/home/goper/.goper/ca
+      - ./captures:/home/goper/captures # JSON response bodies land here on the host
+    command: ["--output-dir", "/home/goper/captures", "--output-format", "json"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/api/stats"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
 
-  browser-app:
+  chrome:
     build: ./browser
-    network_mode: "service:goper"
+    networks: [goper-net]
+    environment:
+      - DISPLAY=host.docker.internal:0 # X11 via XQuartz on macOS
+    ports:
+      - "9222:9222" # Chrome DevTools Protocol (Playwright connectOverCDP)
+    volumes:
+      - goper-ca:/certs:ro # goper's CA for trust installation
+      - /tmp/.X11-unix:/tmp/.X11-unix
     depends_on:
       goper:
         condition: service_healthy
-    volumes:
-      - ./ca-cert.pem:/usr/local/share/ca-certificates/goper.crt
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9222/json/version').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 networks:
-  intercepted:
-    driver: bridge
-  upstream:
-    driver: bridge
+  goper-net:
 
 volumes:
   goper-ca:

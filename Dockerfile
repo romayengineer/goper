@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
@@ -18,7 +18,9 @@ RUN apk add --no-cache \
     ip6tables \
     su-exec
 
-RUN adduser -D -u 1000 goper
+RUN adduser -D -u 1000 goper \
+    && mkdir -p /home/goper/.goper/ca \
+    && chown -R goper:goper /home/goper
 
 COPY --from=builder /goper /usr/local/bin/goper
 
