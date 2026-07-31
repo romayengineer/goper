@@ -7,6 +7,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libnss3-tools \
         ca-certificates \
+        xvfb \
+        x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -1,0 +1,8 @@
+# Overlay used by the e2e workflow test (make test-e2e).
+# Runs the headed Chrome under a virtual X server (Xvfb) instead of a
+# physical display, so the full compose stack can run in CI/headless envs.
+services:
+  chrome:
+    environment:
+      - DISPLAY=:99
+    entrypoint: ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 2; exec /entrypoint.sh"]

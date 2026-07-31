@@ -4,11 +4,12 @@
 const { chromium } = require('playwright');
 
 (async () => {
+  const target = process.env.E2E_TARGET_URL || 'https://httpbin.org/anything';
   const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const context = browser.contexts()[0] || (await browser.newContext());
   const page = context.pages()[0] || (await context.newPage());
 
-  await page.goto('https://httpbin.org/anything', {
+  await page.goto(target, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
