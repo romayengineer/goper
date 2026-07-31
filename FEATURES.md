@@ -79,6 +79,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 
 - [x] Multi-stage `Dockerfile` (alpine runtime, static binary, runs as root for iptables management)
 - [x] `docker-compose.yml` — goper (`cap_add: NET_ADMIN`, `--transparent`) + windowed Chrome sharing goper's network namespace (`network_mode: service:goper`), shared CA volume, captures bind-mount
+- [x] Cross-platform DISPLAY: uses `${DISPLAY}` on Linux (unix socket via `/tmp/.X11-unix`, `xhost +local:` prerequisite) and falls back to XQuartz TCP (`host.docker.internal:0`) on macOS
 - [x] Transparent interception enabled in the compose stack: iptables REDIRECT of ports 80/443, zero proxy config in the browser
 - [x] Chrome runs as a non-root user (`pwuser`) so the proxy's uid-0 owner-skip rule does not exempt its traffic
 - [x] `docker-compose.integration.yml` — Xvfb overlay for headless/CI runs
@@ -95,6 +96,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] E2E asserts real iptables rule installation in the goper container (owner-uid skip + REDIRECT 80/443)
 - [x] E2E asserts Chromium runs with no `--proxy-server` (interception fully transparent)
 - [x] macOS window e2e test (`-tags=e2e && darwin`) with XQuartz window assertion
+- [x] Linux window e2e test (`-tags=e2e && linux`) with real X display window assertion
 
 ---
 

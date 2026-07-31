@@ -26,7 +26,9 @@ services:
     # service's traffic to the proxy with zero application configuration.
     network_mode: "service:goper"
     environment:
-      - DISPLAY=host.docker.internal:0 # X11 via XQuartz on macOS
+      # macOS/XQuartz: host.docker.internal:0 (TCP). Linux: uses the exported
+      # DISPLAY (unix socket via /tmp/.X11-unix); prerequisite: xhost +local:
+      - DISPLAY=${DISPLAY:-host.docker.internal:0}
     volumes:
       - goper-ca:/certs:ro # goper's CA for trust installation
       - /tmp/.X11-unix:/tmp/.X11-unix
