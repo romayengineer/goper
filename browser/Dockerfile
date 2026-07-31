@@ -21,6 +21,11 @@ RUN mkdir -p /home/pwuser/.config/goper-chrome /home/pwuser/.pki/nssdb \
 RUN find /ms-playwright -name chrome-sandbox -exec chown root:root {} + \
     && find /ms-playwright -name chrome-sandbox -exec chmod 4755 {} +
 
+# Disable Chrome's translate offer via managed policy (overrides the profile
+# pref). Chromium reads /etc/chromium/policies/managed/ on Linux.
+RUN mkdir -p /etc/chromium/policies/managed \
+    && printf '{"TranslateEnabled": false}\n' > /etc/chromium/policies/managed/translate.json
+
 WORKDIR /app
 
 COPY package.json ./
@@ -30,6 +35,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 COPY playwright-example.js /app/playwright-example.js
+COPY translate-probe.js /app/translate-probe.js
 
 EXPOSE 9222
 

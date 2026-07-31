@@ -31,11 +31,21 @@ for d in OnDeviceHeadSuggestModel OptGuideOnDeviceModel optimization_guide_model
   chmod 0755 "$UDD/$d"
 done
 
+# Disable Chrome's translate offer via the profile preference (in addition to
+# the managed policy). This is the setting chrome://settings/languages toggles.
+DEFAULT_DIR="$UDD/Default"
+mkdir -p "$DEFAULT_DIR"
+chown "$CHROME_USER":"$CHROME_USER" "$DEFAULT_DIR"
+if [ ! -f "$DEFAULT_DIR/Preferences" ]; then
+  printf '{"translate":{"enabled":false}}\n' > "$DEFAULT_DIR/Preferences"
+  chown "$CHROME_USER":"$CHROME_USER" "$DEFAULT_DIR/Preferences"
+fi
+
 # Transparent mode: no --proxy-server flag. goper's iptables rules redirect
 # this process's traffic to the proxy. Chrome runs as a non-root user so the
 # uid-0 owner-skip rule (goper's own traffic) does not exempt it, and its
-# sandbox stays enabled (no --no-sandbox). --disable-translate never offers
-# to translate content (no popup, any language).
+# sandbox stays enabled (no --no-sandbox). The translate offer is disabled by
+# the managed policy + translate.enabled pref (see above).
 exec setpriv --reuid="$CHROME_USER" --regid="$CHROME_USER" --init-groups env HOME="$CHROME_HOME" "$CHROME_BIN" \
   --disable-gpu \
   --disable-dev-shm-usage \
