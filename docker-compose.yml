@@ -31,6 +31,10 @@ services:
       # macOS/XQuartz: host.docker.internal:0 (TCP). Linux: uses the exported
       # DISPLAY (unix socket via /tmp/.X11-unix); prerequisite: xhost +local:
       - DISPLAY=${DISPLAY:-host.docker.internal:0}
+      # Suppress Chromium's "Google API keys are missing" banner (stock
+      # Chromium ships without keys). Placeholder value only; Google-API-bound
+      # features (e.g. Safe Browsing) are intentionally disabled.
+      - GOOGLE_API_KEY=goper-placeholder
     volumes:
       - goper-ca:/certs:ro # goper's CA for trust installation
       - /tmp/.X11-unix:/tmp/.X11-unix
