@@ -31,7 +31,7 @@ type Server struct {
 	outputs  []output.Writer
 }
 
-func NewServer(cfg config.Provider) (*Server, error) {
+func NewServer(cfg config.Provider) (Runnable, error) {
 	ca, err := LoadOrCreateCA(cfg.GetCADir())
 	if err != nil {
 		return nil, fmt.Errorf("load CA: %w", err)

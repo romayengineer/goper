@@ -23,7 +23,7 @@ type Server struct {
 	port    int
 }
 
-func NewServer(port int, store capture.Store, caPEM []byte) *Server {
+func NewServer(port int, store capture.Store, caPEM []byte) Runnable {
 	handler := NewHandler(store, caPEM)
 
 	r := chi.NewRouter()
