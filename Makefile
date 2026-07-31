@@ -2,7 +2,7 @@ BINARY=goper
 BUILD_DIR=.
 CMD_DIR=./cmd/goper
 
-.PHONY: build docker up down test cover clean
+.PHONY: build docker up down test test-unit test-integration test-all cover cover-integration clean
 
 build:
 	go build -ldflags="-s -w" -o $(BINARY) $(CMD_DIR)
@@ -19,11 +19,30 @@ up:
 down:
 	docker compose down
 
+# unit tests only (integration tests excluded via build tag)
 test:
 	go test ./... -v
 
+test-unit:
+	go test ./... -race -count=1
+
+# integration tests only (loopback network / full pipeline)
+test-integration:
+	go test -tags=integration ./... -race -count=1 -v
+
+# everything
+test-all:
+	go test -tags=integration ./... -race -count=1
+
+# unit coverage
 cover:
 	go test ./... -coverprofile=coverage.out
+	@go tool cover -func=coverage.out | grep total | awk '{print "total: " $$3}'
+	@rm -f coverage.out
+
+# combined coverage (unit + integration)
+cover-integration:
+	go test -tags=integration ./... -coverprofile=coverage.out
 	@go tool cover -func=coverage.out | grep total | awk '{print "total: " $$3}'
 	@rm -f coverage.out
 
