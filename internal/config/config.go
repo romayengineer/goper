@@ -2,6 +2,17 @@ package config
 
 import "log/slog"
 
+type Provider interface {
+	ProxyPort() int
+	GetAPIPort() int
+	GetCADir() string
+	IsTransparent() bool
+	IsVerbose() bool
+	GetBufferSize() int
+	GetLogFormat() string
+	GetLogLevel() slog.Level
+}
+
 type Config struct {
 	Port        int
 	APIPort     int
@@ -25,3 +36,12 @@ func Default() *Config {
 		LogLevel:    slog.LevelInfo,
 	}
 }
+
+func (c *Config) ProxyPort() int        { return c.Port }
+func (c *Config) GetAPIPort() int        { return c.APIPort }
+func (c *Config) GetCADir() string       { return c.CADir }
+func (c *Config) IsTransparent() bool    { return c.Transparent }
+func (c *Config) IsVerbose() bool        { return c.Verbose }
+func (c *Config) GetBufferSize() int     { return c.BufferSize }
+func (c *Config) GetLogFormat() string   { return c.LogFormat }
+func (c *Config) GetLogLevel() slog.Level { return c.LogLevel }

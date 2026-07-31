@@ -17,25 +17,26 @@ import (
 type Runnable interface {
 	Run() error
 	RunWithListener(l net.Listener) error
+	Store() capture.Store
 }
 
 type Server struct {
-	proxy   *goproxy.ProxyHttpServer
-	store   capture.Store
-	cache   CertStore
-	ca      *CA
-	config  *config.Config
+	proxy    *goproxy.ProxyHttpServer
+	store    capture.Store
+	cache    CertStore
+	ca       CAProvider
+	config   config.Provider
 	recorder capture.Recorder
 	outputs  []output.Writer
 }
 
-func NewServer(cfg *config.Config) (*Server, error) {
-	ca, err := LoadOrCreateCA(cfg.CADir)
+func NewServer(cfg config.Provider) (*Server, error) {
+	ca, err := LoadOrCreateCA(cfg.GetCADir())
 	if err != nil {
 		return nil, fmt.Errorf("load CA: %w", err)
 	}
 
-	store := capture.NewRingBuffer(cfg.BufferSize)
+	store := capture.NewRingBuffer(cfg.GetBufferSize())
 	cache := NewCertCache(ca)
 
 	s := &Server{
@@ -47,9 +48,9 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		recorder: capture.DefaultRecorder{},
 	}
 
-	s.proxy.Verbose = cfg.Verbose
+	s.proxy.Verbose = cfg.IsVerbose()
 
-	goproxy.GoproxyCa = ca.TLS
+	goproxy.GoproxyCa = ca.TLSCertificate()
 
 	s.proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 
@@ -65,7 +66,7 @@ func (s *Server) AddOutput(w output.Writer) {
 }
 
 func (s *Server) Run() error {
-	addr := fmt.Sprintf(":%d", s.config.Port)
+	addr := fmt.Sprintf(":%d", s.config.ProxyPort())
 	slog.Info("proxy listening", "addr", addr)
 	return http.ListenAndServe(addr, s.proxy)
 }
@@ -79,7 +80,7 @@ func (s *Server) Store() capture.Store {
 	return s.store
 }
 
-func (s *Server) CA() *CA {
+func (s *Server) CA() CAProvider {
 	return s.ca
 }
 

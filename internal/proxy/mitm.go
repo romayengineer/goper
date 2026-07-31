@@ -138,6 +138,10 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 	return ca, nil
 }
 
+type CAProvider interface {
+	TLSCertificate() tls.Certificate
+}
+
 type CertStore interface {
 	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 	GetCertForHost(host string) (*tls.Certificate, error)
@@ -226,6 +230,10 @@ func (cc *CertCache) generateCert(host string) (*tls.Certificate, error) {
 		Certificate: [][]byte{certDER, cc.ca.Cert.Raw},
 		PrivateKey:  key,
 	}, nil
+}
+
+func (ca *CA) TLSCertificate() tls.Certificate {
+	return ca.TLS
 }
 
 func (ca *CA) CertPool() *x509.CertPool {
