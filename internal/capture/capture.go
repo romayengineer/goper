@@ -8,6 +8,26 @@ import (
 	"time"
 )
 
+type Recorder interface {
+	CaptureRequest(r *http.Request) CapturedEntry
+	CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start time.Time) CaptureResult
+	CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry
+}
+
+type DefaultRecorder struct{}
+
+func (DefaultRecorder) CaptureRequest(r *http.Request) CapturedEntry {
+	return CaptureRequest(r)
+}
+
+func (DefaultRecorder) CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start time.Time) CaptureResult {
+	return CaptureResponse(statusCode, header, bodyBytes, start)
+}
+
+func (DefaultRecorder) CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry {
+	return CombineEntry(reqEntry, result)
+}
+
 type ResponseRecorder struct {
 	http.ResponseWriter
 	statusCode int

@@ -11,14 +11,22 @@ import (
 	"github.com/elazarl/goproxy"
 	"github.com/romayengineer/goper/internal/capture"
 	"github.com/romayengineer/goper/internal/config"
+	"github.com/romayengineer/goper/internal/output"
 )
 
+type Runnable interface {
+	Run() error
+	RunWithListener(l net.Listener) error
+}
+
 type Server struct {
-	proxy  *goproxy.ProxyHttpServer
-	store  capture.Store
-	cache  *CertCache
-	ca     *CA
-	config *config.Config
+	proxy   *goproxy.ProxyHttpServer
+	store   capture.Store
+	cache   CertStore
+	ca      *CA
+	config  *config.Config
+	recorder capture.Recorder
+	outputs  []output.Writer
 }
 
 func NewServer(cfg *config.Config) (*Server, error) {
@@ -31,11 +39,12 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	cache := NewCertCache(ca)
 
 	s := &Server{
-		proxy:  goproxy.NewProxyHttpServer(),
-		store:  store,
-		cache:  cache,
-		ca:     ca,
-		config: cfg,
+		proxy:    goproxy.NewProxyHttpServer(),
+		store:    store,
+		cache:    cache,
+		ca:       ca,
+		config:   cfg,
+		recorder: capture.DefaultRecorder{},
 	}
 
 	s.proxy.Verbose = cfg.Verbose
@@ -49,6 +58,10 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	s.proxy.OnResponse().DoFunc(s.handleResponse)
 
 	return s, nil
+}
+
+func (s *Server) AddOutput(w output.Writer) {
+	s.outputs = append(s.outputs, w)
 }
 
 func (s *Server) Run() error {
@@ -72,7 +85,7 @@ func (s *Server) CA() *CA {
 
 func (s *Server) handleRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	start := time.Now()
-	entry := capture.CaptureRequest(r)
+	entry := s.recorder.CaptureRequest(r)
 	ctx.UserData = captureCtx{
 		entry: entry,
 		start: start,
@@ -95,15 +108,21 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		return resp
 	}
 
-	result := capture.CaptureResponse(
+	result := s.recorder.CaptureResponse(
 		resp.StatusCode,
 		resp.Header,
 		bodyBytes,
 		data.start,
 	)
 
-	fullEntry := capture.CombineEntry(data.entry, result)
+	fullEntry := s.recorder.CombineEntry(data.entry, result)
 	s.store.Push(fullEntry)
+
+	for _, w := range s.outputs {
+		if err := w.WriteEntry(fullEntry); err != nil {
+			slog.Error("output write failed", "error", err)
+		}
+	}
 
 	slog.Debug("request completed",
 		"id", fullEntry.ID,

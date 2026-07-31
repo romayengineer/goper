@@ -12,6 +12,11 @@ import (
 	"github.com/romayengineer/goper/internal/capture"
 )
 
+type Runnable interface {
+	Run() error
+	RunWithListener(l net.Listener) error
+}
+
 type Server struct {
 	handler *Handler
 	router  *chi.Mux
