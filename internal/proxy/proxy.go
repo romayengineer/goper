@@ -18,6 +18,7 @@ type Runnable interface {
 	Run() error
 	RunWithListener(l net.Listener) error
 	Store() capture.Store
+	CA() CAProvider
 }
 
 type Server struct {

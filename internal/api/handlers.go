@@ -11,6 +11,15 @@ import (
 	"github.com/romayengineer/goper/internal/capture"
 )
 
+type RequestHandler interface {
+	ListRequests(w http.ResponseWriter, r *http.Request)
+	GetRequest(w http.ResponseWriter, r *http.Request)
+	StreamRequests(w http.ResponseWriter, r *http.Request)
+	ClearRequests(w http.ResponseWriter, r *http.Request)
+	GetStats(w http.ResponseWriter, r *http.Request)
+	GetCA(w http.ResponseWriter, r *http.Request)
+}
+
 type Handler struct {
 	store capture.Store
 	caPEM []byte

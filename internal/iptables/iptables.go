@@ -12,9 +12,20 @@ type RuleManager interface {
 	Teardown() error
 }
 
+type CommandRunner interface {
+	Run(name string, args ...string) ([]byte, error)
+}
+
+type OSRunner struct{}
+
+func (OSRunner) Run(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).CombinedOutput()
+}
+
 type Manager struct {
 	proxyPort int
 	rules     []rule
+	runner    CommandRunner
 }
 
 type rule struct {
@@ -23,11 +34,16 @@ type rule struct {
 	spec  []string
 }
 
-func NewManager(proxyPort int) *Manager {
+func NewManager(proxyPort int, runner CommandRunner) *Manager {
+	if runner == nil {
+		runner = OSRunner{}
+	}
+
 	goperUID := 1000
 
 	return &Manager{
 		proxyPort: proxyPort,
+		runner:    runner,
 		rules: []rule{
 			{
 				table: "nat",
@@ -61,8 +77,7 @@ func (m *Manager) Setup() error {
 		}
 
 		args := append([]string{"-t", r.table, "-A", r.chain}, r.spec...)
-		cmd := exec.Command("iptables", args...)
-		out, err := cmd.CombinedOutput()
+		out, err := m.runner.Run("iptables", args...)
 		if err != nil {
 			return fmt.Errorf("iptables %s: %s: %w", strings.Join(args, " "), string(out), err)
 		}
@@ -81,8 +96,7 @@ func (m *Manager) Teardown() error {
 
 	for _, r := range m.rules {
 		args := append([]string{"-t", r.table, "-D", r.chain}, r.spec...)
-		cmd := exec.Command("iptables", args...)
-		out, err := cmd.CombinedOutput()
+		out, err := m.runner.Run("iptables", args...)
 		if err != nil {
 			slog.Warn("remove rule failed",
 				"rule", strings.Join(args, " "),
@@ -97,7 +111,10 @@ func (m *Manager) Teardown() error {
 
 func (m *Manager) ruleExists(r rule) (bool, error) {
 	args := append([]string{"-t", r.table, "-C", r.chain}, r.spec...)
-	cmd := exec.Command("iptables", args...)
-	err := cmd.Run()
-	return err == nil, nil
+	out, err := m.runner.Run("iptables", args...)
+	if err != nil {
+		return false, nil
+	}
+	_ = out
+	return true, nil
 }

@@ -28,39 +28,6 @@ func (DefaultRecorder) CombineEntry(reqEntry CapturedEntry, result CaptureResult
 	return CombineEntry(reqEntry, result)
 }
 
-type ResponseRecorder struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-	headers    http.Header
-}
-
-func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
-	return &ResponseRecorder{
-		ResponseWriter: w,
-		statusCode:     http.StatusOK,
-		headers:        w.Header().Clone(),
-	}
-}
-
-func (r *ResponseRecorder) WriteHeader(code int) {
-	r.statusCode = code
-	r.ResponseWriter.WriteHeader(code)
-}
-
-func (r *ResponseRecorder) Write(b []byte) (int, error) {
-	r.body.Write(b)
-	return r.ResponseWriter.Write(b)
-}
-
-func (r *ResponseRecorder) StatusCode() int {
-	return r.statusCode
-}
-
-func (r *ResponseRecorder) Body() []byte {
-	return r.body.Bytes()
-}
-
 func headersToMap(h http.Header) map[string]string {
 	m := make(map[string]string, len(h))
 	for k, v := range h {

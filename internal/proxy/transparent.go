@@ -1,3 +1,5 @@
+//go:build linux
+
 package proxy
 
 import (
@@ -11,6 +13,16 @@ import (
 type OriginalDst struct {
 	IP   net.IP
 	Port int
+}
+
+type OriginalDstResolver interface {
+	Resolve(conn net.Conn) (*OriginalDst, error)
+}
+
+type LinuxResolver struct{}
+
+func (LinuxResolver) Resolve(conn net.Conn) (*OriginalDst, error) {
+	return GetOriginalDst(conn)
 }
 
 const SO_ORIGINAL_DST = 80
@@ -56,6 +68,16 @@ func GetOriginalDst(conn net.Conn) (*OriginalDst, error) {
 
 type ClientHello struct {
 	ServerName string
+}
+
+type SNIPeeker interface {
+	Peek(conn net.Conn) (*ClientHello, error)
+}
+
+type DefaultSNIPeeker struct{}
+
+func (DefaultSNIPeeker) Peek(conn net.Conn) (*ClientHello, error) {
+	return PeekClientHello(conn)
 }
 
 func PeekClientHello(conn net.Conn) (*ClientHello, error) {

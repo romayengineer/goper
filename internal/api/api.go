@@ -18,7 +18,7 @@ type Runnable interface {
 }
 
 type Server struct {
-	handler *Handler
+	handler RequestHandler
 	router  *chi.Mux
 	port    int
 }
