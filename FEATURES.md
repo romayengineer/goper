@@ -95,6 +95,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 ### Tests
 
 - [x] Unit tests: config, capture, ring buffer (incl. concurrency + eviction), API handlers/routes/SSE, proxy handlers, cert cache, SNI parser (synthetic ClientHello vectors), iptables (mock runner), file writers (fake FS)
+- [x] CA-reload regression test: a CA loaded from disk carries its private key and can sign leaf certs (previously the reload path left the key nil, breaking HTTPS MITM with `ERR_SSL_PROTOCOL_ERROR`)
 - [x] Integration tests (`-tags=integration`): HTTP proxy, HTTPS MITM, transparent HTTP/HTTPS over loopback, real-disk output writers, API over listener
 - [x] E2E tests (`-tags=e2e`): full docker-compose workflow with Chrome + Playwright + capture assertion
 - [x] E2E asserts real iptables rule installation in the goper container (owner-uid skip + REDIRECT 80/443)

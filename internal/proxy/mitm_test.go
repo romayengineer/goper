@@ -47,6 +47,35 @@ func TestLoadOrCreateCA_Persists(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, ca1.Cert.SerialNumber.Cmp(ca2.Cert.SerialNumber), "expected CA to be reloaded from disk")
+	assert.NotNil(t, ca2.Key, "expected reloaded CA to carry its private key")
+}
+
+func TestCertCacheWorksWithReloadedCA(t *testing.T) {
+	dir := t.TempDir()
+
+	ca1, err := LoadOrCreateCA(dir)
+	require.NoError(t, err)
+
+	ca2, err := LoadOrCreateCA(dir)
+	require.NoError(t, err)
+	assert.NotNil(t, ca2.Key, "expected reloaded CA to carry its private key")
+
+	cc := NewCertCache(ca2)
+	cert, err := cc.GetCertForHost("api.example.com")
+	require.NoError(t, err, "reloaded CA must be able to sign leaf certs")
+	require.NotNil(t, cert)
+
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	require.NoError(t, err)
+
+	roots := x509.NewCertPool()
+	roots.AddCert(ca2.Cert)
+	_, err = leaf.Verify(x509.VerifyOptions{
+		DNSName: "api.example.com",
+		Roots:   roots,
+	})
+	assert.NoError(t, err, "leaf signed by reloaded CA should verify")
+	assert.Equal(t, ca1.Cert.SerialNumber, ca2.Cert.SerialNumber, "CA must be reloaded, not regenerated")
 }
 
 func TestLoadOrCreateCA_EmptyDir(t *testing.T) {

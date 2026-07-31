@@ -101,6 +101,7 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 
 		return &CA{
 			Cert:     cert,
+			Key:      tlsCert.PrivateKey,
 			TLS:      tlsCert,
 			certPool: pool,
 		}, nil
