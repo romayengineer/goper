@@ -24,9 +24,9 @@ echo "[goper-chrome] launching: $CHROME_BIN"
 
 # Transparent mode: no --proxy-server flag. goper's iptables rules redirect
 # this process's traffic to the proxy. Chrome runs as a non-root user so the
-# uid-0 owner-skip rule (goper's own traffic) does not exempt it.
+# uid-0 owner-skip rule (goper's own traffic) does not exempt it, and its
+# sandbox stays enabled (no --no-sandbox).
 exec setpriv --reuid="$CHROME_USER" --regid="$CHROME_USER" --init-groups env HOME="$CHROME_HOME" "$CHROME_BIN" \
-  --no-sandbox \
   --disable-gpu \
   --disable-dev-shm-usage \
   --disable-quic \

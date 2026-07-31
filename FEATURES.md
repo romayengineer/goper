@@ -82,6 +82,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] Cross-platform DISPLAY: uses `${DISPLAY}` on Linux (unix socket via `/tmp/.X11-unix`, `xhost +local:` prerequisite) and falls back to XQuartz TCP (`host.docker.internal:0`) on macOS
 - [x] Transparent interception enabled in the compose stack: iptables REDIRECT of ports 80/443, zero proxy config in the browser
 - [x] Chrome runs as a non-root user (`pwuser`) so the proxy's uid-0 owner-skip rule does not exempt its traffic
+- [x] Chrome runs with its sandbox enabled (no `--no-sandbox`); `seccomp:unconfined` on the chrome service lets it create user namespaces under Docker's default seccomp
 - [x] `docker-compose.integration.yml` — Xvfb overlay for headless/CI runs
 - [x] Healthchecks for goper (API stats) and chrome (CDP version)
 - [x] `browser/` image: installs goper CA into system + NSS trust stores, launches Chrome with no proxy configuration

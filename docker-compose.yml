@@ -25,6 +25,8 @@ services:
     # Shares goper's network namespace: goper's iptables rules redirect this
     # service's traffic to the proxy with zero application configuration.
     network_mode: "service:goper"
+    security_opt:
+      - seccomp:unconfined # Chrome sandbox needs user namespaces (blocked by Docker's default seccomp)
     environment:
       # macOS/XQuartz: host.docker.internal:0 (TCP). Linux: uses the exported
       # DISPLAY (unix socket via /tmp/.X11-unix); prerequisite: xhost +local:

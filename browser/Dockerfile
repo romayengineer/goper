@@ -16,6 +16,11 @@ RUN apt-get update \
 RUN mkdir -p /home/pwuser/.config/goper-chrome /home/pwuser/.pki/nssdb \
     && chown -R pwuser:pwuser /home/pwuser
 
+# Chrome sandbox: ensure the SUID helper is setuid root so the non-root
+# pwuser can run Chrome with its sandbox enabled (no --no-sandbox).
+RUN find /ms-playwright -name chrome-sandbox -exec chown root:root {} + \
+    && find /ms-playwright -name chrome-sandbox -exec chmod 4755 {} +
+
 WORKDIR /app
 
 COPY package.json ./
