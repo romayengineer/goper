@@ -71,10 +71,17 @@ func requireMacX11(t *testing.T) {
 		t.Skip("XQuartz TCP is disabled — run: defaults write org.xquartz.X11 nolisten_tcp -bool false")
 	}
 
-	// 3. Display reachable with access allowed.
-	if out, err := runCmd(context.Background(), "", "sh", "-c", "DISPLAY=:0 /opt/X11/bin/xhost"); err != nil {
+	// 3. Display reachable with access allowed. XQuartz re-enables access
+	//    control between sessions, so force `xhost +` here — right before the
+	//    compose stack starts — rather than relying on a stale state.
+	if out, err := runCmd(context.Background(), "", "sh", "-c", "DISPLAY=:0 /opt/X11/bin/xhost +"); err != nil {
 		t.Skipf("cannot reach the X display (%v) — allow Docker: /opt/X11/bin/xhost +", err)
 		_ = out
+	}
+
+	out, err := runCmd(context.Background(), "", "sh", "-c", "DISPLAY=:0 /opt/X11/bin/xhost")
+	if err != nil || !strings.Contains(out, "access control disabled") {
+		t.Skip("X access control is still enabled after `xhost +` — run: /opt/X11/bin/xhost +")
 	}
 }
 
