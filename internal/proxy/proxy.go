@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
@@ -109,6 +110,9 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 	if err != nil {
 		return resp
 	}
+
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	resp.ContentLength = int64(len(bodyBytes))
 
 	result := s.recorder.CaptureResponse(
 		resp.StatusCode,

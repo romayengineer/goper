@@ -113,3 +113,18 @@ func TestNewManagerNilRunnerDefaults(t *testing.T) {
 func TestManagerImplementsRuleManager(t *testing.T) {
 	var _ RuleManager = NewManager(8080, &mockRunner{})
 }
+
+func TestOSRunnerExecutesCommand(t *testing.T) {
+	var runner CommandRunner = OSRunner{}
+
+	out, err := runner.Run("echo", "-n", "hi")
+	require.NoError(t, err)
+	assert.Equal(t, "hi", string(out))
+}
+
+func TestOSRunnerReportsError(t *testing.T) {
+	var runner CommandRunner = OSRunner{}
+
+	_, err := runner.Run("false")
+	require.Error(t, err)
+}

@@ -198,6 +198,21 @@ func TestSubscribeMultiple(t *testing.T) {
 	}
 }
 
+func TestNewRingBufferZeroCapacity(t *testing.T) {
+	rb := NewRingBuffer(0)
+	// capacity <= 0 defaults to 10000
+	rb.Push(newTestEntry("a"))
+	assert.Equal(t, 1, rb.Len())
+	assert.NotNil(t, rb.Get(EntryID("a")))
+}
+
+func TestNewRingBufferNegativeCapacity(t *testing.T) {
+	rb := NewRingBuffer(-5)
+	rb.Push(newTestEntry("a"))
+	rb.Push(newTestEntry("b"))
+	assert.Equal(t, 2, rb.Len())
+}
+
 func TestConcurrentPushList(t *testing.T) {
 	rb := NewRingBuffer(1000)
 
