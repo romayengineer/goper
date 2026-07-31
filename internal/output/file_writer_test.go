@@ -1,17 +1,78 @@
 package output
 
 import (
-	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/romayengineer/goper/internal/capture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// fakeFileSystem is an in-memory FileSystem used to unit test the writers
+// without performing any real I/O.
+type fakeFileSystem struct {
+	mu       sync.Mutex
+	files    map[string][]byte
+	dirs     map[string]bool
+	mkdirErr error
+	writeErr error
+	openErr  error
+}
+
+func newFakeFS() *fakeFileSystem {
+	return &fakeFileSystem{
+		files: make(map[string][]byte),
+		dirs:  make(map[string]bool),
+	}
+}
+
+func (f *fakeFileSystem) MkdirAll(path string, perm os.FileMode) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mkdirErr != nil {
+		return f.mkdirErr
+	}
+	f.dirs[path] = true
+	return nil
+}
+
+func (f *fakeFileSystem) WriteFile(path string, data []byte, perm os.FileMode) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.files[path] = append([]byte(nil), data...)
+	return nil
+}
+
+func (f *fakeFileSystem) OpenFile(path string, flag int, perm os.FileMode) (io.WriteCloser, error) {
+	if f.openErr != nil {
+		return nil, f.openErr
+	}
+	return &fakeFile{fs: f, path: path}, nil
+}
+
+type fakeFile struct {
+	fs   *fakeFileSystem
+	path string
+}
+
+func (m *fakeFile) Write(p []byte) (int, error) {
+	m.fs.mu.Lock()
+	defer m.fs.mu.Unlock()
+	m.fs.files[m.path] = append(m.fs.files[m.path], p...)
+	return len(p), nil
+}
+
+func (m *fakeFile) Close() error { return nil }
 
 func jsonEntry(id, body string) *capture.CapturedEntry {
 	return &capture.CapturedEntry{
@@ -22,29 +83,25 @@ func jsonEntry(id, body string) *capture.CapturedEntry {
 }
 
 func TestJSONBodyWriterWritesPrettyFile(t *testing.T) {
-	dir := t.TempDir()
-	w := NewJSONBodyWriter(dir)
+	fs := newFakeFS()
+	w := newJSONBodyWriter("out", fs)
 
 	require.NoError(t, w.WriteEntry(jsonEntry("abc", `{"users":[{"id":1,"name":"alice"}]}`)))
 
-	path := filepath.Join(dir, "abc.json")
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-
+	data, ok := fs.files[filepath.Join("out", "abc.json")]
+	require.True(t, ok, "expected file to be written to fake fs")
 	assert.Equal(t, "{\n  \"users\": [\n    {\n      \"id\": 1,\n      \"name\": \"alice\"\n    }\n  ]\n}\n", string(data))
 	assert.True(t, json.Valid(data), "file content should be valid JSON")
 }
 
 func TestJSONBodyWriterPreservesExactJSON(t *testing.T) {
-	dir := t.TempDir()
-	w := NewJSONBodyWriter(dir)
+	fs := newFakeFS()
+	w := newJSONBodyWriter("out", fs)
 
 	raw := `{"b":2,"a":[1,"x"],"z":{"nested":true}}`
 	require.NoError(t, w.WriteEntry(jsonEntry("exact", raw)))
 
-	data, err := os.ReadFile(filepath.Join(dir, "exact.json"))
-	require.NoError(t, err)
-
+	data := fs.files[filepath.Join("out", "exact.json")]
 	var got, want interface{}
 	require.NoError(t, json.Unmarshal(data, &got))
 	require.NoError(t, json.Unmarshal([]byte(raw), &want))
@@ -52,79 +109,91 @@ func TestJSONBodyWriterPreservesExactJSON(t *testing.T) {
 }
 
 func TestJSONBodyWriterSkipsNonJSON(t *testing.T) {
-	dir := t.TempDir()
-	w := NewJSONBodyWriter(dir)
+	fs := newFakeFS()
+	w := newJSONBodyWriter("out", fs)
 
 	body := "<html>not json</html>"
-	entry := &capture.CapturedEntry{
+	require.NoError(t, w.WriteEntry(&capture.CapturedEntry{
 		ID:          capture.EntryID("html"),
 		ContentType: "text/html",
 		ResponseBody: &body,
-	}
+	}))
 
-	require.NoError(t, w.WriteEntry(entry))
-	_, err := os.Stat(filepath.Join(dir, "html.json"))
-	assert.True(t, os.IsNotExist(err), "no file should be created for non-JSON response")
+	assert.Empty(t, fs.files, "no file should be created for non-JSON response")
 }
 
 func TestJSONBodyWriterSkipsNilBody(t *testing.T) {
-	dir := t.TempDir()
-	w := NewJSONBodyWriter(dir)
+	fs := newFakeFS()
+	w := newJSONBodyWriter("out", fs)
 
 	require.NoError(t, w.WriteEntry(&capture.CapturedEntry{
 		ID:          capture.EntryID("nobody"),
 		ContentType: "application/json",
 	}))
 
-	_, err := os.Stat(filepath.Join(dir, "nobody.json"))
-	assert.True(t, os.IsNotExist(err))
+	assert.Empty(t, fs.files)
 }
 
 func TestJSONBodyWriterSkipsInvalidJSON(t *testing.T) {
-	dir := t.TempDir()
-	w := NewJSONBodyWriter(dir)
+	fs := newFakeFS()
+	w := newJSONBodyWriter("out", fs)
 
 	require.NoError(t, w.WriteEntry(jsonEntry("bad", `{"broken":`)))
 
-	_, err := os.Stat(filepath.Join(dir, "bad.json"))
-	assert.True(t, os.IsNotExist(err), "invalid JSON should be skipped, not error")
+	assert.Empty(t, fs.files, "invalid JSON should be skipped, not error")
 }
 
-func TestJSONBodyWriterCreatesNestedDir(t *testing.T) {
-	base := t.TempDir()
-	dir := filepath.Join(base, "deep", "nested")
-	w := NewJSONBodyWriter(dir)
+func TestJSONBodyWriterCreatesDir(t *testing.T) {
+	fs := newFakeFS()
+	w := newJSONBodyWriter("deep/nested", fs)
 
 	require.NoError(t, w.WriteEntry(jsonEntry("n", `{"ok":true}`)))
-	data, err := os.ReadFile(filepath.Join(dir, "n.json"))
-	require.NoError(t, err)
-	assert.True(t, json.Valid(data))
+
+	assert.True(t, fs.dirs["deep/nested"], "expected MkdirAll to be called for the output dir")
+	assert.Contains(t, fs.files, filepath.Join("deep", "nested", "n.json"))
 }
 
 func TestJSONBodyWriterMultipleFiles(t *testing.T) {
-	dir := t.TempDir()
-	w := NewJSONBodyWriter(dir)
+	fs := newFakeFS()
+	w := newJSONBodyWriter("out", fs)
 
 	require.NoError(t, w.WriteEntry(jsonEntry("one", `{"i":1}`)))
 	require.NoError(t, w.WriteEntry(jsonEntry("two", `{"i":2}`)))
 
-	assert.FileExists(t, filepath.Join(dir, "one.json"))
-	assert.FileExists(t, filepath.Join(dir, "two.json"))
+	assert.Contains(t, fs.files, filepath.Join("out", "one.json"))
+	assert.Contains(t, fs.files, filepath.Join("out", "two.json"))
+}
+
+func TestJSONBodyWriterMkdirError(t *testing.T) {
+	fs := newFakeFS()
+	fs.mkdirErr = errors.New("permission denied")
+	w := newJSONBodyWriter("out", fs)
+
+	err := w.WriteEntry(jsonEntry("a", `{"ok":true}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
+}
+
+func TestJSONBodyWriterWriteError(t *testing.T) {
+	fs := newFakeFS()
+	fs.writeErr = errors.New("disk full")
+	w := newJSONBodyWriter("out", fs)
+
+	err := w.WriteEntry(jsonEntry("a", `{"ok":true}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk full")
 }
 
 func TestNDJSONBodyWriterAppendsLines(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "responses.jsonl")
-	w := NewNDJSONBodyWriter(path)
+	fs := newFakeFS()
+	w := newNDJSONBodyWriter(filepath.Join("out", "responses.jsonl"), fs)
 
 	require.NoError(t, w.WriteEntry(jsonEntry("one", `{"a": 1}`)))
 	require.NoError(t, w.WriteEntry(jsonEntry("two", `{"b": 2}`)))
 
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-
+	data := fs.files[filepath.Join("out", "responses.jsonl")]
 	lines := 0
-	dec := json.NewDecoder(bytes.NewReader(data))
+	dec := json.NewDecoder(strings.NewReader(string(data)))
 	for dec.More() {
 		var v interface{}
 		require.NoError(t, dec.Decode(&v))
@@ -134,21 +203,18 @@ func TestNDJSONBodyWriterAppendsLines(t *testing.T) {
 }
 
 func TestNDJSONBodyWriterCompactSingleLine(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "out.jsonl")
-	w := NewNDJSONBodyWriter(path)
+	fs := newFakeFS()
+	w := newNDJSONBodyWriter(filepath.Join("out", "out.jsonl"), fs)
 
 	require.NoError(t, w.WriteEntry(jsonEntry("one", "{\n  \"a\": 1,\n  \"b\": [1, 2, 3]\n}")))
 
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
+	data := fs.files[filepath.Join("out", "out.jsonl")]
 	assert.Equal(t, `{"a":1,"b":[1,2,3]}`+"\n", string(data))
 }
 
 func TestNDJSONBodyWriterSkipsNonJSON(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "out.jsonl")
-	w := NewNDJSONBodyWriter(path)
+	fs := newFakeFS()
+	w := newNDJSONBodyWriter(filepath.Join("out", "out.jsonl"), fs)
 
 	body := "text"
 	require.NoError(t, w.WriteEntry(&capture.CapturedEntry{
@@ -157,26 +223,32 @@ func TestNDJSONBodyWriterSkipsNonJSON(t *testing.T) {
 		ResponseBody: &body,
 	}))
 
-	_, err := os.Stat(path)
-	assert.True(t, os.IsNotExist(err), "no file should be created when all entries are non-JSON")
+	assert.Empty(t, fs.files, "no file should be created when all entries are non-JSON")
 }
 
-func TestNDJSONBodyWriterCreatesNestedDir(t *testing.T) {
-	base := t.TempDir()
-	path := filepath.Join(base, "deep", "nested", "out.jsonl")
-	w := NewNDJSONBodyWriter(path)
+func TestNDJSONBodyWriterCreatesDir(t *testing.T) {
+	fs := newFakeFS()
+	w := newNDJSONBodyWriter(filepath.Join("deep", "nested", "out.jsonl"), fs)
 
 	require.NoError(t, w.WriteEntry(jsonEntry("n", `{"ok":true}`)))
 
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, `{"ok":true}`+"\n", string(data))
+	assert.True(t, fs.dirs["deep/nested"], "expected MkdirAll to be called for parent dir")
+	assert.Contains(t, fs.files, filepath.Join("deep", "nested", "out.jsonl"))
+}
+
+func TestNDJSONBodyWriterOpenError(t *testing.T) {
+	fs := newFakeFS()
+	fs.openErr = errors.New("too many open files")
+	w := newNDJSONBodyWriter(filepath.Join("out", "out.jsonl"), fs)
+
+	err := w.WriteEntry(jsonEntry("a", `{"ok":true}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too many open files")
 }
 
 func TestNDJSONBodyWriterConcurrent(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "out.jsonl")
-	w := NewNDJSONBodyWriter(path)
+	fs := newFakeFS()
+	w := newNDJSONBodyWriter(filepath.Join("out", "out.jsonl"), fs)
 
 	const n = 100
 	done := make(chan struct{}, n)
@@ -190,8 +262,19 @@ func TestNDJSONBodyWriterConcurrent(t *testing.T) {
 		<-done
 	}
 
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
+	data := fs.files[filepath.Join("out", "out.jsonl")]
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	assert.Len(t, lines, n, "expected %d lines, no interleaving", n)
+}
+
+func TestJSONBodyWriterImplementsWriter(t *testing.T) {
+	var _ Writer = (*JSONBodyWriter)(nil)
+}
+
+func TestNDJSONBodyWriterImplementsWriter(t *testing.T) {
+	var _ Writer = (*NDJSONBodyWriter)(nil)
+}
+
+func TestOSFileSystemImplementsFileSystem(t *testing.T) {
+	var _ FileSystem = OSFileSystem{}
 }
