@@ -85,7 +85,7 @@ func CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start
 
 	if len(bodyBytes) > 0 && len(bodyBytes) < 1*1024*1024 {
 		s := string(bodyBytes)
-		if isPrintable(s) || isJSON(cr.ContentType) {
+		if isPrintable(s) || IsJSONContentType(cr.ContentType) {
 			cr.ResponseBody = &s
 		}
 	}
@@ -93,7 +93,7 @@ func CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start
 	return cr
 }
 
-func isJSON(contentType string) bool {
+func IsJSONContentType(contentType string) bool {
 	ct := strings.ToLower(contentType)
 	return strings.Contains(ct, "application/json") ||
 		strings.Contains(ct, "application/vnd.api+json") ||

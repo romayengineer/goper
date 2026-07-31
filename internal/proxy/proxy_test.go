@@ -18,14 +18,16 @@ import (
 )
 
 type mockConfig struct {
-	port        int
-	apiPort     int
-	caDir       string
-	transparent bool
-	verbose     bool
-	bufferSize  int
-	logFormat   string
-	logLevel    slog.Level
+	port         int
+	apiPort      int
+	caDir        string
+	transparent  bool
+	verbose      bool
+	bufferSize   int
+	logFormat    string
+	logLevel     slog.Level
+	outputDir    string
+	outputFormat string
 }
 
 func (m mockConfig) ProxyPort() int          { return m.port }
@@ -36,6 +38,8 @@ func (m mockConfig) IsVerbose() bool         { return m.verbose }
 func (m mockConfig) GetBufferSize() int      { return m.bufferSize }
 func (m mockConfig) GetLogFormat() string    { return m.logFormat }
 func (m mockConfig) GetLogLevel() slog.Level { return m.logLevel }
+func (m mockConfig) GetOutputDir() string    { return m.outputDir }
+func (m mockConfig) GetOutputFormat() string { return m.outputFormat }
 
 type mockStore struct {
 	pushed []*capture.CapturedEntry

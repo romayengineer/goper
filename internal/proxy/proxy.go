@@ -20,6 +20,7 @@ type Runnable interface {
 	RunWithListener(l net.Listener) error
 	Store() capture.Store
 	CA() CAProvider
+	AddOutput(w output.Writer)
 }
 
 type Server struct {
