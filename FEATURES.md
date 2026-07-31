@@ -87,6 +87,8 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] On-device AI model downloads blocked: model directories (`OnDeviceHeadSuggestModel`, `OptGuideOnDeviceModel`, `optimization_guide_model_store`, `OnDeviceModelExecutables`) are root-writable only, so the browser user cannot persist models
 - [x] Translate prompt disabled: managed policy `TranslateEnabled: false` + `translate.enabled: false` profile pref (the `--disable-translate` switch alone is ineffective in this Chromium build)
 - [x] Translate e2e test: probes `chrome://translate-internals` counts after visiting a Spanish page (`es.wikipedia.org`) to assert no translate offer fires
+- [x] Geolocation blocked by default: managed policy `DefaultGeolocationSetting: 2` + `default_content_setting_values.geolocation: 2` profile pref (no page can open the location popup)
+- [x] Geolocation e2e test: probes permission state + `getCurrentPosition` pending-check on `where-am-i.co` to assert the location popup never appears
 - [x] `docker-compose.integration.yml` — Xvfb overlay for headless/CI runs
 - [x] Healthchecks for goper (API stats) and chrome (CDP version)
 - [x] `browser/` image: installs goper CA into system + NSS trust stores, launches Chrome with no proxy configuration

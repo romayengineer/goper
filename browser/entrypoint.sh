@@ -31,13 +31,14 @@ for d in OnDeviceHeadSuggestModel OptGuideOnDeviceModel optimization_guide_model
   chmod 0755 "$UDD/$d"
 done
 
-# Disable Chrome's translate offer via the profile preference (in addition to
-# the managed policy). This is the setting chrome://settings/languages toggles.
+# Disable Chrome's translate offer and geolocation via profile preferences (in
+# addition to the managed policies). These mirror the chrome://settings toggles:
+# translate.enabled=false, default_content_setting_values.geolocation=2 (Block).
 DEFAULT_DIR="$UDD/Default"
 mkdir -p "$DEFAULT_DIR"
 chown "$CHROME_USER":"$CHROME_USER" "$DEFAULT_DIR"
 if [ ! -f "$DEFAULT_DIR/Preferences" ]; then
-  printf '{"translate":{"enabled":false}}\n' > "$DEFAULT_DIR/Preferences"
+  printf '{"translate":{"enabled":false},"profile":{"default_content_setting_values":{"geolocation":2}}}\n' > "$DEFAULT_DIR/Preferences"
   chown "$CHROME_USER":"$CHROME_USER" "$DEFAULT_DIR/Preferences"
 fi
 

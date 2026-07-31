@@ -26,6 +26,10 @@ RUN find /ms-playwright -name chrome-sandbox -exec chown root:root {} + \
 RUN mkdir -p /etc/chromium/policies/managed \
     && printf '{"TranslateEnabled": false}\n' > /etc/chromium/policies/managed/translate.json
 
+# Block geolocation by default via managed policy (2 = Block): no page can ask
+# for location, so the permission popup never appears.
+RUN printf '{"DefaultGeolocationSetting": 2}\n' > /etc/chromium/policies/managed/geolocation.json
+
 WORKDIR /app
 
 COPY package.json ./
@@ -36,6 +40,7 @@ RUN chmod +x /entrypoint.sh
 
 COPY playwright-example.js /app/playwright-example.js
 COPY translate-probe.js /app/translate-probe.js
+COPY geolocation-probe.js /app/geolocation-probe.js
 
 EXPOSE 9222
 
