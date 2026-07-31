@@ -2,9 +2,10 @@ package api
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -21,7 +22,7 @@ func NewServer(port int, store *capture.RingBuffer, caPEM []byte) *Server {
 	handler := NewHandler(store, caPEM)
 
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	r.Use(slogMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 
@@ -41,13 +42,32 @@ func NewServer(port int, store *capture.RingBuffer, caPEM []byte) *Server {
 
 func (s *Server) Run() error {
 	addr := fmt.Sprintf(":%d", s.port)
-	log.Printf("goper API listening on %s", addr)
+	slog.Info("api listening", "addr", addr)
 	return http.ListenAndServe(addr, s.router)
 }
 
 func (s *Server) RunWithListener(l net.Listener) error {
-	log.Printf("goper API listening on %s", l.Addr())
+	slog.Info("api listening", "addr", l.Addr())
 	return http.Serve(l, s.router)
+}
+
+func CAURL(port int) string {
+	return fmt.Sprintf("http://localhost:%d/api/ca.pem", port)
+}
+
+func slogMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		slog.Info("api request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", ww.Status(),
+			"bytes", ww.BytesWritten(),
+			"duration", time.Since(start).String(),
+		)
+	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

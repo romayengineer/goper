@@ -2,7 +2,7 @@ package iptables
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strings"
 )
@@ -44,7 +44,7 @@ func NewManager(proxyPort int) *Manager {
 }
 
 func (m *Manager) Setup() error {
-	log.Println("installing iptables rules...")
+	slog.Info("installing iptables rules")
 
 	for _, r := range m.rules {
 		exists, err := m.ruleExists(r)
@@ -61,21 +61,28 @@ func (m *Manager) Setup() error {
 		if err != nil {
 			return fmt.Errorf("iptables %s: %s: %w", strings.Join(args, " "), string(out), err)
 		}
-		log.Printf("  added: iptables -t %s -A %s %s", r.table, r.chain, strings.Join(r.spec, " "))
+		slog.Debug("rule added",
+			"table", r.table,
+			"chain", r.chain,
+			"spec", strings.Join(r.spec, " "),
+		)
 	}
 
 	return nil
 }
 
 func (m *Manager) Teardown() error {
-	log.Println("removing iptables rules...")
+	slog.Info("removing iptables rules")
 
 	for _, r := range m.rules {
 		args := append([]string{"-t", r.table, "-D", r.chain}, r.spec...)
 		cmd := exec.Command("iptables", args...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Printf("warning: iptables -D %s: %s", strings.Join(args, " "), string(out))
+			slog.Warn("remove rule failed",
+				"rule", strings.Join(args, " "),
+				"error", string(out),
+			)
 			continue
 		}
 	}

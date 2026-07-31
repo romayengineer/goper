@@ -1,5 +1,7 @@
 package config
 
+import "log/slog"
+
 type Config struct {
 	Port        int
 	APIPort     int
@@ -7,6 +9,8 @@ type Config struct {
 	Transparent bool
 	Verbose     bool
 	BufferSize  int
+	LogFormat   string
+	LogLevel    slog.Level
 }
 
 func Default() *Config {
@@ -17,5 +21,7 @@ func Default() *Config {
 		Transparent: false,
 		Verbose:     false,
 		BufferSize:  10000,
+		LogFormat:   "text",
+		LogLevel:    slog.LevelInfo,
 	}
 }

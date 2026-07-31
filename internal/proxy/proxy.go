@@ -3,7 +3,7 @@ package proxy
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -53,17 +53,12 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 func (s *Server) Run() error {
 	addr := fmt.Sprintf(":%d", s.config.Port)
-	log.Printf("goper proxy listening on %s", addr)
-
-	if s.config.Transparent {
-		log.Println("transparent mode enabled (iptables must redirect traffic)")
-	}
-
+	slog.Info("proxy listening", "addr", addr)
 	return http.ListenAndServe(addr, s.proxy)
 }
 
 func (s *Server) RunWithListener(l net.Listener) error {
-	log.Printf("goper proxy listening on %s", l.Addr())
+	slog.Info("proxy listening", "addr", l.Addr())
 	return http.Serve(l, s.proxy)
 }
 
@@ -110,9 +105,13 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 	fullEntry := capture.CombineEntry(data.entry, result)
 	s.store.Push(fullEntry)
 
-	if s.config.Verbose {
-		log.Printf("[%s] %s %s → %d (%dms)", fullEntry.ID, fullEntry.Method, fullEntry.URL, fullEntry.StatusCode, fullEntry.DurationMs)
-	}
+	slog.Debug("request completed",
+		"id", fullEntry.ID,
+		"method", fullEntry.Method,
+		"url", fullEntry.URL,
+		"status", fullEntry.StatusCode,
+		"duration_ms", fullEntry.DurationMs,
+	)
 
 	return resp
 }
