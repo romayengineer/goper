@@ -1,0 +1,370 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/romayengineer/goper/internal/capture"
+)
+
+type mockStore struct {
+	mu          sync.Mutex
+	entries     []*capture.CapturedEntry
+	subscribers []chan *capture.CapturedEntry
+	cleared     bool
+}
+
+func (m *mockStore) Push(entry *capture.CapturedEntry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = append(m.entries, entry)
+	for _, ch := range m.subscribers {
+		select {
+		case ch <- entry:
+		default:
+		}
+	}
+}
+
+func (m *mockStore) Get(id capture.EntryID) *capture.CapturedEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.entries {
+		if e.ID == id {
+			return e
+		}
+	}
+	return nil
+}
+
+func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []*capture.CapturedEntry
+	for _, e := range m.entries {
+		if !opts.Since.IsZero() && e.Timestamp.Before(opts.Since) {
+			continue
+		}
+		if opts.Method != "" && e.Method != opts.Method {
+			continue
+		}
+		if opts.Status > 0 && e.StatusCode != opts.Status {
+			continue
+		}
+		if opts.URL != "" && e.URL != opts.URL {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func (m *mockStore) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleared = true
+	m.entries = nil
+}
+
+func (m *mockStore) Len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.entries)
+}
+
+func (m *mockStore) Subscribe() chan *capture.CapturedEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ch := make(chan *capture.CapturedEntry, 10)
+	m.subscribers = append(m.subscribers, ch)
+	return ch
+}
+
+func (m *mockStore) Unsubscribe(ch chan *capture.CapturedEntry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, s := range m.subscribers {
+		if s == ch {
+			m.subscribers = append(m.subscribers[:i], m.subscribers[i+1:]...)
+			close(ch)
+			return
+		}
+	}
+}
+
+func newHandler(store *mockStore, caPEM []byte) *Handler {
+	return NewHandler(store, caPEM)
+}
+
+func sampleEntry(id string) *capture.CapturedEntry {
+	return &capture.CapturedEntry{
+		ID:         capture.EntryID(id),
+		Timestamp:  time.Now(),
+		Method:     "GET",
+		URL:        "http://example.com/" + id,
+		StatusCode: 200,
+	}
+}
+
+func decodeList(t *testing.T, resp *httptest.ResponseRecorder) (int, []*capture.CapturedEntry) {
+	t.Helper()
+	var body struct {
+		Count int                      `json:"count"`
+		Data  []*capture.CapturedEntry `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return body.Count, body.Data
+}
+
+func TestListRequests(t *testing.T) {
+	store := &mockStore{
+		entries: []*capture.CapturedEntry{sampleEntry("a"), sampleEntry("b")},
+	}
+	h := newHandler(store, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests", nil)
+	rec := httptest.NewRecorder()
+	h.ListRequests(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	count, data := decodeList(t, rec)
+	if count != 2 || len(data) != 2 {
+		t.Fatalf("expected 2 entries, got count=%d len=%d", count, len(data))
+	}
+}
+
+func TestListRequestsEmpty(t *testing.T) {
+	store := &mockStore{}
+	h := newHandler(store, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests", nil)
+	rec := httptest.NewRecorder()
+	h.ListRequests(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	count, data := decodeList(t, rec)
+	if count != 0 || len(data) != 0 {
+		t.Fatalf("expected empty array, got count=%d len=%d", count, len(data))
+	}
+}
+
+func TestListRequestsFilters(t *testing.T) {
+	post := sampleEntry("post")
+	post.Method = "POST"
+	store := &mockStore{
+		entries: []*capture.CapturedEntry{sampleEntry("get"), post},
+	}
+	h := newHandler(store, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests?method=POST", nil)
+	rec := httptest.NewRecorder()
+	h.ListRequests(rec, req)
+
+	count, data := decodeList(t, rec)
+	if count != 1 || data[0].ID != "post" {
+		t.Fatalf("expected only POST entry, got count=%d", count)
+	}
+}
+
+func TestListRequestsInvalidParamsIgnored(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("a")}}
+	h := newHandler(store, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests?since=not-a-date&status=abc&limit=-5&offset=-1", nil)
+	rec := httptest.NewRecorder()
+	h.ListRequests(rec, req)
+
+	count, _ := decodeList(t, rec)
+	if count != 1 {
+		t.Fatalf("invalid params should be ignored, got count=%d", count)
+	}
+}
+
+func TestGetRequestFound(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("abc")}}
+	h := newHandler(store, nil)
+
+	r := chi.NewRouter()
+	r.Get("/api/requests/{id}", h.GetRequest)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/abc", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	var entry capture.CapturedEntry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entry); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if entry.ID != "abc" {
+		t.Fatalf("id: got %q", entry.ID)
+	}
+}
+
+func TestGetRequestNotFound(t *testing.T) {
+	store := &mockStore{}
+	h := newHandler(store, nil)
+
+	r := chi.NewRouter()
+	r.Get("/api/requests/{id}", h.GetRequest)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/missing", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", rec.Code)
+	}
+}
+
+func TestClearRequests(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("a")}}
+	h := newHandler(store, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/requests", nil)
+	rec := httptest.NewRecorder()
+	h.ClearRequests(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	if !store.cleared {
+		t.Fatal("expected store.Clear to be called")
+	}
+}
+
+func TestGetStats(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("a"), sampleEntry("b")}}
+	h := newHandler(store, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+	rec := httptest.NewRecorder()
+	h.GetStats(rec, req)
+
+	var body struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Count != 2 {
+		t.Fatalf("count: got %d", body.Count)
+	}
+}
+
+func TestGetCA(t *testing.T) {
+	pem := []byte("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----")
+	h := newHandler(&mockStore{}, pem)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ca.pem", nil)
+	rec := httptest.NewRecorder()
+	h.GetCA(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	if rec.Body.String() != string(pem) {
+		t.Fatal("body does not match CA PEM")
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/x-pem-file" {
+		t.Fatalf("content type: got %q", ct)
+	}
+}
+
+func TestGetCANotFound(t *testing.T) {
+	h := newHandler(&mockStore{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ca.pem", nil)
+	rec := httptest.NewRecorder()
+	h.GetCA(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", rec.Code)
+	}
+}
+
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (f *flushRecorder) Flush() {}
+
+func TestStreamRequests(t *testing.T) {
+	store := &mockStore{}
+	h := newHandler(store, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/stream", nil).WithContext(ctx)
+	rec := &flushRecorder{httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.StreamRequests(rec, req)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	store.Push(sampleEntry("live"))
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for stream to close")
+	}
+
+	if !strings.Contains(rec.Body.String(), "data: ") {
+		t.Fatalf("expected SSE data frame, got: %q", rec.Body.String())
+	}
+}
+
+type nonFlusher struct {
+	http.ResponseWriter
+}
+
+func TestStreamRequestsNotFlusher(t *testing.T) {
+	h := newHandler(&mockStore{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/stream", nil)
+	rec := httptest.NewRecorder()
+	h.StreamRequests(nonFlusher{rec}, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status: got %d, want 500", rec.Code)
+	}
+}
+
+func TestHandlerImplementsRequestHandler(t *testing.T) {
+	var _ RequestHandler = newHandler(&mockStore{}, nil)
+}
+
+func TestWriteJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeJSON(rec, http.StatusCreated, map[string]string{"ok": "true"})
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status: got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("content type: got %q", ct)
+	}
+}
+
+

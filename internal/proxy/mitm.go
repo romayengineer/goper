@@ -164,8 +164,11 @@ func NewCertCache(ca CAProvider) *CertCache {
 
 func (cc *CertCache) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	host := hello.ServerName
-	if host == "" {
+	if host == "" && hello.Conn != nil {
 		host = hello.Conn.LocalAddr().String()
+	}
+	if host == "" {
+		host = "localhost"
 	}
 
 	cc.mu.RLock()
