@@ -18,7 +18,7 @@ type Server struct {
 	port    int
 }
 
-func NewServer(port int, store *capture.RingBuffer, caPEM []byte) *Server {
+func NewServer(port int, store capture.Store, caPEM []byte) *Server {
 	handler := NewHandler(store, caPEM)
 
 	r := chi.NewRouter()

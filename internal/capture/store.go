@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+type Store interface {
+	Push(entry *CapturedEntry)
+	Get(id EntryID) *CapturedEntry
+	List(opts ListOpts) []*CapturedEntry
+	Clear()
+	Len() int
+	Subscribe() chan *CapturedEntry
+	Unsubscribe(ch chan *CapturedEntry)
+}
+
 type RingBuffer struct {
 	mu      sync.RWMutex
 	buffer  []*CapturedEntry

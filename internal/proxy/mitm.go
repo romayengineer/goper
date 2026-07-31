@@ -138,6 +138,11 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 	return ca, nil
 }
 
+type CertStore interface {
+	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
+	GetCertForHost(host string) (*tls.Certificate, error)
+}
+
 type CertCache struct {
 	mu   sync.RWMutex
 	certs map[string]*tls.Certificate

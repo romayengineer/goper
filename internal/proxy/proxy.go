@@ -15,7 +15,7 @@ import (
 
 type Server struct {
 	proxy  *goproxy.ProxyHttpServer
-	store  *capture.RingBuffer
+	store  capture.Store
 	cache  *CertCache
 	ca     *CA
 	config *config.Config
@@ -62,7 +62,7 @@ func (s *Server) RunWithListener(l net.Listener) error {
 	return http.Serve(l, s.proxy)
 }
 
-func (s *Server) Store() *capture.RingBuffer {
+func (s *Server) Store() capture.Store {
 	return s.store
 }
 

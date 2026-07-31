@@ -12,11 +12,11 @@ import (
 )
 
 type Handler struct {
-	store *capture.RingBuffer
+	store capture.Store
 	caPEM []byte
 }
 
-func NewHandler(store *capture.RingBuffer, caPEM []byte) *Handler {
+func NewHandler(store capture.Store, caPEM []byte) *Handler {
 	return &Handler{store: store, caPEM: caPEM}
 }
 

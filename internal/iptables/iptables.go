@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+type RuleManager interface {
+	Setup() error
+	Teardown() error
+}
+
 type Manager struct {
 	proxyPort int
 	rules     []rule
