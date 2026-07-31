@@ -31,6 +31,9 @@ type Server struct {
 	config   config.Provider
 	recorder capture.Recorder
 	outputs  []output.Writer
+
+	resolver OriginalDstResolver
+	peeker   SNIPeeker
 }
 
 func NewServer(cfg config.Provider) (Runnable, error) {
@@ -70,11 +73,21 @@ func (s *Server) AddOutput(w output.Writer) {
 
 func (s *Server) Run() error {
 	addr := fmt.Sprintf(":%d", s.config.ProxyPort())
+	if s.config.IsTransparent() {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("transparent listen: %w", err)
+		}
+		return s.runTransparent(ln)
+	}
 	slog.Info("proxy listening", "addr", addr)
 	return http.ListenAndServe(addr, s.proxy)
 }
 
 func (s *Server) RunWithListener(l net.Listener) error {
+	if s.config.IsTransparent() {
+		return s.runTransparent(l)
+	}
 	slog.Info("proxy listening", "addr", l.Addr())
 	return http.Serve(l, s.proxy)
 }

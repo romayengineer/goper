@@ -3,6 +3,7 @@ package iptables
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -39,7 +40,7 @@ func NewManager(proxyPort int, runner CommandRunner) *Manager {
 		runner = OSRunner{}
 	}
 
-	goperUID := 1000
+	goperUID := os.Getuid()
 
 	return &Manager{
 		proxyPort: proxyPort,
