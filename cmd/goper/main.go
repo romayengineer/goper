@@ -72,7 +72,7 @@ func main() {
 
 	if cfg.OutputDir != "" {
 		if cfg.OutputFormat == "ndjson" {
-			proxyServer.AddOutput(output.NewNDJSONBodyWriter(filepath.Join(cfg.OutputDir, "responses.jsonl")))
+			proxyServer.AddOutput(output.NewNDJSONBodyWriter(cfg.OutputDir))
 		} else {
 			proxyServer.AddOutput(output.NewJSONBodyWriter(cfg.OutputDir))
 		}

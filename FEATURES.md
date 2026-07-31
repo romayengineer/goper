@@ -52,8 +52,9 @@ Tracking document for implemented features (checked) and new feature ideas (open
 
 ### Output (`internal/output`)
 
-- [x] `--output-dir` writes each JSON response body as pretty `.json` (`<id>.json`)
-- [x] `--output-format ndjson` appends compact JSON bodies to a single `.jsonl`
+- [x] `--output-dir` writes each JSON response body as pretty `.json` (`<id>.json`) organized per domain: `captures/<domain>/<id>.json`
+- [x] `--output-format ndjson` appends compact JSON bodies to `captures/<domain>/responses.jsonl` (one stream per domain)
+- [x] Domain folder names sanitized (port stripped, unsafe chars replaced, path-traversal hosts like `..` → `unknown`)
 - [x] Non-JSON content types and invalid JSON skipped
 - [x] Filesystem abstraction for unit testing
 - [x] Concurrent-safe append writer for NDJSON

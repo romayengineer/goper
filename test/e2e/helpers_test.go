@@ -4,10 +4,12 @@ package e2e
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,11 +105,15 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool, msg string) {
 	t.Fatalf("timed out after %s waiting for %s", timeout, msg)
 }
 
-// countJSON returns the number of .json files in dir.
+// countJSON returns the number of .json files under dir (recursively, since
+// captures are organized into per-domain subdirectories).
 func countJSON(dir string) int {
-	matches, err := filepath.Glob(filepath.Join(dir, "*.json"))
-	if err != nil {
-		return 0
-	}
-	return len(matches)
+	n := 0
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(d.Name(), ".json") {
+			n++
+		}
+		return nil
+	})
+	return n
 }

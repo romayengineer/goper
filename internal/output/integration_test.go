@@ -18,9 +18,9 @@ func TestJSONBodyWriterRealDisk(t *testing.T) {
 	dir := t.TempDir()
 	w := NewJSONBodyWriter(dir)
 
-	require.NoError(t, w.WriteEntry(jsonEntry("disk", `{"users":[{"id":1}]}`)))
+	require.NoError(t, w.WriteEntry(jsonEntry("example.com", "disk", `{"users":[{"id":1}]}`)))
 
-	data, err := os.ReadFile(filepath.Join(dir, "disk.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "example.com", "disk.json"))
 	require.NoError(t, err)
 	assert.True(t, json.Valid(data))
 	assert.Contains(t, string(data), "  \"users\": [")
@@ -32,24 +32,24 @@ func TestJSONBodyWriterRealDiskSkipped(t *testing.T) {
 
 	body := "<html>x</html>"
 	require.NoError(t, w.WriteEntry(&capture.CapturedEntry{
-		ID:          capture.EntryID("html"),
-		ContentType: "text/html",
+		ID:           capture.EntryID("html"),
+		Host:         "example.com",
+		ContentType:  "text/html",
 		ResponseBody: &body,
 	}))
 
-	_, err := os.Stat(filepath.Join(dir, "html.json"))
+	_, err := os.Stat(filepath.Join(dir, "example.com", "html.json"))
 	assert.True(t, os.IsNotExist(err), "non-JSON response should not create a file")
 }
 
 func TestNDJSONBodyWriterRealDisk(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "nested", "out.jsonl")
-	w := NewNDJSONBodyWriter(path)
+	w := NewNDJSONBodyWriter(dir)
 
-	require.NoError(t, w.WriteEntry(jsonEntry("one", `{"a":1}`)))
-	require.NoError(t, w.WriteEntry(jsonEntry("two", `{"b":2}`)))
+	require.NoError(t, w.WriteEntry(jsonEntry("example.com", "one", `{"a":1}`)))
+	require.NoError(t, w.WriteEntry(jsonEntry("example.com", "two", `{"b":2}`)))
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(dir, "example.com", "responses.jsonl"))
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	assert.Len(t, lines, 2)
