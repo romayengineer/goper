@@ -34,11 +34,13 @@ done
 # Transparent mode: no --proxy-server flag. goper's iptables rules redirect
 # this process's traffic to the proxy. Chrome runs as a non-root user so the
 # uid-0 owner-skip rule (goper's own traffic) does not exempt it, and its
-# sandbox stays enabled (no --no-sandbox).
+# sandbox stays enabled (no --no-sandbox). --disable-translate never offers
+# to translate content (no popup, any language).
 exec setpriv --reuid="$CHROME_USER" --regid="$CHROME_USER" --init-groups env HOME="$CHROME_HOME" "$CHROME_BIN" \
   --disable-gpu \
   --disable-dev-shm-usage \
   --disable-quic \
+  --disable-translate \
   --remote-debugging-port=9222 \
   --remote-debugging-address=0.0.0.0 \
   --remote-allow-origins='*' \

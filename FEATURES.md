@@ -85,6 +85,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] Chrome runs with its sandbox enabled (no `--no-sandbox`); `seccomp:unconfined` on the chrome service lets it create user namespaces under Docker's default seccomp
 - [x] Chromium's "Google API keys are missing" banner suppressed via a placeholder `GOOGLE_API_KEY` (Google-API-bound features intentionally disabled; harmless for capture)
 - [x] On-device AI model downloads blocked: model directories (`OnDeviceHeadSuggestModel`, `OptGuideOnDeviceModel`, `optimization_guide_model_store`, `OnDeviceModelExecutables`) are root-writable only, so the browser user cannot persist models
+- [x] Translate prompt disabled (`--disable-translate`): Chromium never offers to translate content (any language), and no `translate.googleapis.com` calls
 - [x] `docker-compose.integration.yml` — Xvfb overlay for headless/CI runs
 - [x] Healthchecks for goper (API stats) and chrome (CDP version)
 - [x] `browser/` image: installs goper CA into system + NSS trust stores, launches Chrome with no proxy configuration
