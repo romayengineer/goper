@@ -140,6 +140,8 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 
 type CAProvider interface {
 	TLSCertificate() tls.Certificate
+	Certificate() *x509.Certificate
+	PrivateKey() crypto.PrivateKey
 }
 
 type CertStore interface {
@@ -150,10 +152,10 @@ type CertStore interface {
 type CertCache struct {
 	mu   sync.RWMutex
 	certs map[string]*tls.Certificate
-	ca   *CA
+	ca   CAProvider
 }
 
-func NewCertCache(ca *CA) *CertCache {
+func NewCertCache(ca CAProvider) *CertCache {
 	return &CertCache{
 		certs: make(map[string]*tls.Certificate),
 		ca:    ca,
@@ -221,19 +223,27 @@ func (cc *CertCache) generateCert(host string) (*tls.Certificate, error) {
 		template.DNSNames = []string{host}
 	}
 
-	certDER, err := x509.CreateCertificate(rand.Reader, template, cc.ca.Cert, &key.PublicKey, cc.ca.Key)
+	certDER, err := x509.CreateCertificate(rand.Reader, template, cc.ca.Certificate(), &key.PublicKey, cc.ca.PrivateKey())
 	if err != nil {
 		return nil, fmt.Errorf("create host cert: %w", err)
 	}
 
 	return &tls.Certificate{
-		Certificate: [][]byte{certDER, cc.ca.Cert.Raw},
+		Certificate: [][]byte{certDER, cc.ca.Certificate().Raw},
 		PrivateKey:  key,
 	}, nil
 }
 
 func (ca *CA) TLSCertificate() tls.Certificate {
 	return ca.TLS
+}
+
+func (ca *CA) Certificate() *x509.Certificate {
+	return ca.Cert
+}
+
+func (ca *CA) PrivateKey() crypto.PrivateKey {
+	return ca.Key
 }
 
 func (ca *CA) CertPool() *x509.CertPool {
