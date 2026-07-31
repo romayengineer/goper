@@ -3,14 +3,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    cap_add:
+      - NET_ADMIN # install iptables REDIRECT rules for transparent interception
     networks: [goper-net]
     ports:
       - "8080:8080" # proxy (host access for debugging)
       - "8081:8081" # API + CA download
+      - "9222:9222" # Chrome DevTools Protocol (Playwright connectOverCDP)
     volumes:
       - goper-ca:/home/goper/.goper/ca
       - ./captures:/home/goper/captures # JSON response bodies land here on the host
-    command: ["--output-dir", "/home/goper/captures", "--output-format", "json"]
+    command: ["--transparent", "--ca-dir", "/home/goper/.goper/ca", "--output-dir", "/home/goper/captures", "--output-format", "json"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/api/stats"]
       interval: 5s
@@ -19,11 +22,11 @@ services:
 
   chrome:
     build: ./browser
-    networks: [goper-net]
+    # Shares goper's network namespace: goper's iptables rules redirect this
+    # service's traffic to the proxy with zero application configuration.
+    network_mode: "service:goper"
     environment:
       - DISPLAY=host.docker.internal:0 # X11 via XQuartz on macOS
-    ports:
-      - "9222:9222" # Chrome DevTools Protocol (Playwright connectOverCDP)
     volumes:
       - goper-ca:/certs:ro # goper's CA for trust installation
       - /tmp/.X11-unix:/tmp/.X11-unix

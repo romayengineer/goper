@@ -17,11 +17,12 @@ import (
 const composeProject = "goper-e2e"
 
 var composeFiles = []string{
-	"-f", "docker-compose.yml",
-	"-f", "docker-compose.integration.yml",
+	"docker-compose.yml",
+	"docker-compose.integration.yml",
 }
 
-// repoRoot returns the project root (the directory containing go.mod).
+// repoRoot returns the project root (the directory containing go.mod),
+// canonicalized so symlinked checkouts resolve to the real path.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -30,7 +31,9 @@ func repoRoot(t *testing.T) string {
 	dir := filepath.Dir(file)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
+			root, err := filepath.EvalSymlinks(dir)
+			require.NoError(t, err, "failed to canonicalize repo root")
+			return root
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

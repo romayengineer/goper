@@ -20,6 +20,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] Fallback to original destination IP when no SNI is present
 - [x] In-memory per-connection proxy loop (`singleConnListener`) for transparent mode
 - [x] Rewrites relative transparent-style request URLs to absolute before proxying
+- [x] Transparent interception wired into the docker-compose workflow (`network_mode: service:goper` + iptables REDIRECT, zero app config)
 - [x] TLS 1.2+ minimum, `http/1.1` ALPN only
 
 ### Capture (`internal/capture`)
@@ -75,11 +76,13 @@ Tracking document for implemented features (checked) and new feature ideas (open
 
 ### Docker & Deployment
 
-- [x] Multi-stage `Dockerfile` (alpine runtime, static binary, unprivileged `goper` user via `su-exec`)
-- [x] `docker-compose.yml` — goper + windowed Chrome (CDP :9222, X11), shared CA volume, captures bind-mount
+- [x] Multi-stage `Dockerfile` (alpine runtime, static binary, runs as root for iptables management)
+- [x] `docker-compose.yml` — goper (`cap_add: NET_ADMIN`, `--transparent`) + windowed Chrome sharing goper's network namespace (`network_mode: service:goper`), shared CA volume, captures bind-mount
+- [x] Transparent interception enabled in the compose stack: iptables REDIRECT of ports 80/443, zero proxy config in the browser
+- [x] Chrome runs as a non-root user (`pwuser`) so the proxy's uid-0 owner-skip rule does not exempt its traffic
 - [x] `docker-compose.integration.yml` — Xvfb overlay for headless/CI runs
 - [x] Healthchecks for goper (API stats) and chrome (CDP version)
-- [x] `browser/` image: installs goper CA into system + NSS trust stores, launches Chrome pointed at proxy
+- [x] `browser/` image: installs goper CA into system + NSS trust stores, launches Chrome with no proxy configuration
 - [x] `browser/playwright-example.js` — drives the running Chrome via CDP through goper
 - [x] `Makefile` targets: build, run, docker, up, down, test (unit/integration/e2e/mac), cover, lint, clean
 
@@ -88,6 +91,8 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] Unit tests: config, capture, ring buffer (incl. concurrency + eviction), API handlers/routes/SSE, proxy handlers, cert cache, SNI parser (synthetic ClientHello vectors), iptables (mock runner), file writers (fake FS)
 - [x] Integration tests (`-tags=integration`): HTTP proxy, HTTPS MITM, transparent HTTP/HTTPS over loopback, real-disk output writers, API over listener
 - [x] E2E tests (`-tags=e2e`): full docker-compose workflow with Chrome + Playwright + capture assertion
+- [x] E2E asserts real iptables rule installation in the goper container (owner-uid skip + REDIRECT 80/443)
+- [x] E2E asserts Chromium runs with no `--proxy-server` (interception fully transparent)
 - [x] macOS window e2e test (`-tags=e2e && darwin`) with XQuartz window assertion
 
 ---

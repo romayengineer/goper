@@ -5,8 +5,9 @@
 //   with JSON responses dumped into the host-mounted ./captures directory.
 //
 // Requires Docker (with the compose plugin) and internet access to the
-// default target (https://httpbin.org/anything). Override the target with
-// the E2E_TARGET_URL environment variable for offline environments.
+// default target (https://jsonplaceholder.typicode.com/todos/1). Override
+// the target with the E2E_TARGET_URL environment variable for offline
+// environments.
 package e2e
 
 import (
@@ -66,10 +67,30 @@ func TestComposeChromeWorkflow(t *testing.T) {
 	require.NoError(t, err, "goper CA cert should exist in shared volume")
 	assert.Contains(t, out, "ca-cert.pem")
 
-	// 5. Baseline count of captures before Playwright runs.
+	// 5. Transparent interception is active: goper's iptables NAT rules are
+	//    installed (owner-uid skip for its own traffic + REDIRECT 80/443).
+	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+	out, err = composeExec(ctx, root, "goper", "sh", "-c", "iptables -t nat -S OUTPUT")
+	cancel()
+	require.NoError(t, err, "iptables rules should be queryable inside goper")
+	assert.Contains(t, out, "uid-owner 0", "expected owner-skip rule for goper's own traffic")
+	assert.Contains(t, out, "RETURN", "expected the owner-skip rule to RETURN")
+	assert.Contains(t, out, "--dport 80", "expected REDIRECT rule for port 80")
+	assert.Contains(t, out, "--dport 443", "expected REDIRECT rule for port 443")
+	assert.Contains(t, out, "REDIRECT", "expected REDIRECT targets")
+
+	// 6. The browser runs with NO proxy configuration — interception is fully
+	//    transparent (no --proxy-server flag on the Chromium command line).
+	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+	out, err = composeExec(ctx, root, "chrome", "sh", "-c", "ps -ef | grep -i chromium | grep -v grep")
+	cancel()
+	require.NoError(t, err, "chromium should be running inside the chrome container")
+	assert.NotContains(t, out, "--proxy-server", "browser must run without any proxy config")
+
+	// 7. Baseline count of captures before Playwright runs.
 	before := countJSON(capturesDir)
 
-	// 6. Drive the windowed Chrome via Playwright through the goper proxy.
+	// 8. Drive the windowed Chrome via Playwright through the goper proxy.
 	// NOTE: the example closes the browser when done, which stops the
 	// chrome container — so no chrome exec after this point.
 	ctx, cancel = context.WithTimeout(context.Background(), 90*time.Second)
@@ -77,12 +98,12 @@ func TestComposeChromeWorkflow(t *testing.T) {
 	cancel()
 	require.NoError(t, err, "playwright example failed:\n%s", out)
 
-	// 7. A new pretty JSON file appears in the host-mounted captures dir.
+	// 9. A new pretty JSON file appears in the host-mounted captures dir.
 	waitFor(t, 30*time.Second, func() bool {
 		return countJSON(capturesDir) > before
 	}, "a new capture to appear in ./captures")
 
-	// 8. The goper API reports captured requests.
+	// 10. The goper API reports captured requests.
 	waitFor(t, 30*time.Second, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

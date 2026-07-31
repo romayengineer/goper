@@ -11,6 +11,11 @@ RUN apt-get update \
         x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Chrome runs as the non-root 'pwuser' (uid 1000) so goper's iptables
+# owner-skip rule (uid 0) does not exempt its traffic.
+RUN mkdir -p /home/pwuser/.config/goper-chrome /home/pwuser/.pki/nssdb \
+    && chown -R pwuser:pwuser /home/pwuser
+
 WORKDIR /app
 
 COPY package.json ./

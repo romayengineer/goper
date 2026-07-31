@@ -172,8 +172,8 @@ Sensitive headers (authorization, cookie, set-cookie) are redacted by default.
 
 ## Implementation Phases
 
-> Phase 1 (Core Proxy + MITM) is fully implemented and has been removed.
-> The remaining items below are the parts of each phase not yet implemented.
+> Phases 1 and 5 are fully implemented and have been removed. The remaining
+> items below are the parts of each phase not yet implemented.
 
 ### Phase 2: Transparent Mode + iptables
 
@@ -190,15 +190,10 @@ Sensitive headers (authorization, cookie, set-cookie) are redacted by default.
 - [ ] Request-ID middleware
 - [ ] `GET /api/stats` — ring buffer stats + uptime (currently returns count only)
 
-### Phase 5: Docker & Packaging
-
-- [ ] `goper` service with `cap_add: NET_ADMIN` and two networks (`intercepted`, `upstream`)
-- [ ] `browser-app` with `network_mode: "service:goper"` (currently shares a bridge network with explicit `--proxy-server`)
-
 ### Phase 6: Integration Tests
 
 - [ ] Container makes HTTP + HTTPS requests via curl
-- [ ] Test iptables rule installation/removal in a real container
+- [ ] Test iptables rule removal in a real container (installation is verified by the e2e workflow; teardown is only unit-tested)
 
 ---
 

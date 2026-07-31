@@ -15,12 +15,9 @@ FROM alpine:3.21
 RUN apk add --no-cache \
     ca-certificates \
     iptables \
-    ip6tables \
-    su-exec
+    ip6tables
 
-RUN adduser -D -u 1000 goper \
-    && mkdir -p /home/goper/.goper/ca \
-    && chown -R goper:goper /home/goper
+RUN mkdir -p /home/goper/.goper/ca
 
 COPY --from=builder /goper /usr/local/bin/goper
 

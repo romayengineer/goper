@@ -4,7 +4,7 @@
 const { chromium } = require('playwright');
 
 (async () => {
-  const target = process.env.E2E_TARGET_URL || 'https://httpbin.org/anything';
+  const target = process.env.E2E_TARGET_URL || 'https://jsonplaceholder.typicode.com/todos/1';
   const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
   const context = browser.contexts()[0] || (await browser.newContext());
   const page = context.pages()[0] || (await context.newPage());
