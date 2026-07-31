@@ -71,6 +71,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] `~` expansion in `--ca-dir`
 - [x] Text or JSON structured logging via `log/slog`
 - [x] SIGINT/SIGTERM graceful shutdown with iptables teardown
+- [x] Pre-flight check: transparent mode fails fast with an actionable error if not running as root/CAP_NET_ADMIN
 - [x] Runs proxy and API servers concurrently
 - [x] Config defaults: proxy :8080, API :8081, buffer 10,000, CA at `~/.goper/ca`
 

@@ -82,6 +82,11 @@ func main() {
 	var iptMgr iptables.RuleManager = iptables.NewManager(cfg.ProxyPort(), nil)
 
 	if cfg.Transparent {
+		if os.Geteuid() != 0 {
+			fmt.Fprintln(os.Stderr, "transparent mode requires running as root with CAP_NET_ADMIN")
+			fmt.Fprintln(os.Stderr, "hint: rebuild with `docker compose up --build` (cap_add: NET_ADMIN) or run goper as root")
+			os.Exit(1)
+		}
 		if err := iptMgr.Setup(); err != nil {
 			slog.Error("setup iptables", "error", err)
 			os.Exit(1)
