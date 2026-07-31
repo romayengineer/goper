@@ -13,6 +13,8 @@ import (
 	"github.com/romayengineer/goper/internal/capture"
 	"github.com/romayengineer/goper/internal/config"
 	"github.com/romayengineer/goper/internal/output"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockConfig struct {
@@ -26,14 +28,14 @@ type mockConfig struct {
 	logLevel    slog.Level
 }
 
-func (m mockConfig) ProxyPort() int            { return m.port }
-func (m mockConfig) GetAPIPort() int           { return m.apiPort }
-func (m mockConfig) GetCADir() string          { return m.caDir }
-func (m mockConfig) IsTransparent() bool       { return m.transparent }
-func (m mockConfig) IsVerbose() bool           { return m.verbose }
-func (m mockConfig) GetBufferSize() int        { return m.bufferSize }
-func (m mockConfig) GetLogFormat() string      { return m.logFormat }
-func (m mockConfig) GetLogLevel() slog.Level   { return m.logLevel }
+func (m mockConfig) ProxyPort() int          { return m.port }
+func (m mockConfig) GetAPIPort() int         { return m.apiPort }
+func (m mockConfig) GetCADir() string        { return m.caDir }
+func (m mockConfig) IsTransparent() bool     { return m.transparent }
+func (m mockConfig) IsVerbose() bool         { return m.verbose }
+func (m mockConfig) GetBufferSize() int      { return m.bufferSize }
+func (m mockConfig) GetLogFormat() string    { return m.logFormat }
+func (m mockConfig) GetLogLevel() slog.Level { return m.logLevel }
 
 type mockStore struct {
 	pushed []*capture.CapturedEntry
@@ -53,15 +55,15 @@ func (m *mockStore) Get(id capture.EntryID) *capture.CapturedEntry {
 func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
 	return m.pushed
 }
-func (m *mockStore) Clear()                     { m.pushed = nil }
-func (m *mockStore) Len() int                   { return len(m.pushed) }
+func (m *mockStore) Clear()                   { m.pushed = nil }
+func (m *mockStore) Len() int                 { return len(m.pushed) }
 func (m *mockStore) Subscribe() chan *capture.CapturedEntry {
 	return make(chan *capture.CapturedEntry)
 }
 func (m *mockStore) Unsubscribe(ch chan *capture.CapturedEntry) {}
 
 type mockRecorder struct {
-	captureRequests int
+	captureRequests  int
 	captureResponses int
 	combined         int
 }
@@ -107,9 +109,7 @@ func testConfig(t *testing.T) mockConfig {
 func newTestServer(t *testing.T, cfg config.Provider) *Server {
 	t.Helper()
 	s, err := NewServer(cfg)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	require.NoError(t, err)
 	return s.(*Server)
 }
 
@@ -117,43 +117,26 @@ func TestNewServer(t *testing.T) {
 	cfg := testConfig(t)
 	s := newTestServer(t, cfg)
 
-	if s.Store() == nil {
-		t.Fatal("expected Store() to return non-nil")
-	}
-	if s.CA() == nil {
-		t.Fatal("expected CA() to return non-nil")
-	}
-	if s.config != cfg {
-		t.Fatal("expected config to be stored")
-	}
-	if s.recorder == nil {
-		t.Fatal("expected default recorder")
-	}
+	assert.NotNil(t, s.Store())
+	assert.NotNil(t, s.CA())
+	assert.Equal(t, cfg, s.config)
+	assert.NotNil(t, s.recorder, "expected default recorder")
 }
 
 func TestNewServerImplementsRunnable(t *testing.T) {
 	cfg := testConfig(t)
-	var r Runnable
-	var err error
-	r, err = NewServer(cfg)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	if r == nil {
-		t.Fatal("expected non-nil Runnable")
-	}
+	r, err := NewServer(cfg)
+	require.NoError(t, err)
+	assert.NotNil(t, r)
 }
 
 func TestAddOutput(t *testing.T) {
 	cfg := testConfig(t)
 	s := newTestServer(t, cfg)
 
-	mo := &mockOutput{}
-	s.AddOutput(mo)
+	s.AddOutput(&mockOutput{})
 
-	if len(s.outputs) != 1 {
-		t.Fatalf("expected 1 output, got %d", len(s.outputs))
-	}
+	assert.Len(t, s.outputs, 1)
 }
 
 func TestHandleRequest(t *testing.T) {
@@ -166,26 +149,14 @@ func TestHandleRequest(t *testing.T) {
 	ctx := &goproxy.ProxyCtx{}
 
 	returned, resp := s.handleRequest(req, ctx)
-	if returned != req {
-		t.Fatal("expected same request returned")
-	}
-	if resp != nil {
-		t.Fatal("expected nil response")
-	}
+	assert.Same(t, req, returned)
+	assert.Nil(t, resp)
 
 	data, ok := ctx.UserData.(captureCtx)
-	if !ok {
-		t.Fatalf("expected captureCtx in UserData, got %T", ctx.UserData)
-	}
-	if data.entry.Method != http.MethodGet {
-		t.Fatalf("entry method: got %q", data.entry.Method)
-	}
-	if data.start.IsZero() {
-		t.Fatal("expected start time set")
-	}
-	if rec.captureRequests != 1 {
-		t.Fatalf("expected 1 CaptureRequest call, got %d", rec.captureRequests)
-	}
+	require.True(t, ok, "expected captureCtx in UserData, got %T", ctx.UserData)
+	assert.Equal(t, http.MethodGet, data.entry.Method)
+	assert.False(t, data.start.IsZero(), "expected start time set")
+	assert.Equal(t, 1, rec.captureRequests)
 }
 
 func TestHandleResponse(t *testing.T) {
@@ -208,34 +179,23 @@ func TestHandleResponse(t *testing.T) {
 
 	ctx := &goproxy.ProxyCtx{UserData: reqCtx.UserData}
 	got := s.handleResponse(resp, ctx)
-	if got != resp {
-		t.Fatal("expected original response returned")
-	}
+	assert.Same(t, resp, got)
 
-	if len(store.pushed) != 1 {
-		t.Fatalf("expected 1 entry pushed to store, got %d", len(store.pushed))
-	}
+	require.Len(t, store.pushed, 1)
 	entry := store.pushed[0]
-	if entry.StatusCode != http.StatusOK {
-		t.Fatalf("status: got %d", entry.StatusCode)
-	}
-	if entry.ContentType != "application/json" {
-		t.Fatalf("content type: got %q", entry.ContentType)
-	}
-	if entry.ResponseBody == nil || *entry.ResponseBody != `{"ok":true}` {
-		t.Fatalf("response body: got %v", entry.ResponseBody)
-	}
-	if rec.captureResponses != 1 || rec.combined != 1 {
-		t.Fatalf("recorder calls: responses=%d combined=%d", rec.captureResponses, rec.combined)
-	}
+	assert.Equal(t, http.StatusOK, entry.StatusCode)
+	assert.Equal(t, "application/json", entry.ContentType)
+	require.NotNil(t, entry.ResponseBody)
+	assert.Equal(t, `{"ok":true}`, *entry.ResponseBody)
+	assert.Equal(t, 1, rec.captureResponses)
+	assert.Equal(t, 1, rec.combined)
 }
 
 func TestHandleResponseWritesOutputs(t *testing.T) {
 	cfg := testConfig(t)
 	s := newTestServer(t, cfg)
-	store := &mockStore{}
+	s.store = &mockStore{}
 	mo := &mockOutput{}
-	s.store = store
 	s.AddOutput(mo)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/api", nil)
@@ -250,9 +210,7 @@ func TestHandleResponseWritesOutputs(t *testing.T) {
 
 	s.handleResponse(resp, &goproxy.ProxyCtx{UserData: reqCtx.UserData})
 
-	if len(mo.entries) != 1 {
-		t.Fatalf("expected 1 output entry, got %d", len(mo.entries))
-	}
+	assert.Len(t, mo.entries, 1)
 }
 
 func TestHandleResponseOutputErrorDoesNotFail(t *testing.T) {
@@ -273,12 +231,8 @@ func TestHandleResponseOutputErrorDoesNotFail(t *testing.T) {
 	}
 
 	got := s.handleResponse(resp, &goproxy.ProxyCtx{UserData: reqCtx.UserData})
-	if got != resp {
-		t.Fatal("output error should not break the response")
-	}
-	if len(store.pushed) != 1 {
-		t.Fatalf("entry should still be pushed despite output error, got %d", len(store.pushed))
-	}
+	assert.Same(t, resp, got, "output error should not break the response")
+	assert.Len(t, store.pushed, 1, "entry should still be pushed despite output error")
 }
 
 func TestHandleResponseWithoutCaptureCtx(t *testing.T) {
@@ -290,9 +244,7 @@ func TestHandleResponseWithoutCaptureCtx(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader("ok")),
 	}
 	got := s.handleResponse(resp, &goproxy.ProxyCtx{})
-	if got != resp {
-		t.Fatal("expected response passed through untouched")
-	}
+	assert.Same(t, resp, got, "expected response passed through untouched")
 }
 
 func TestHandleResponseNilResponse(t *testing.T) {
@@ -300,15 +252,12 @@ func TestHandleResponseNilResponse(t *testing.T) {
 	s := newTestServer(t, cfg)
 
 	got := s.handleResponse(nil, &goproxy.ProxyCtx{})
-	if got != nil {
-		t.Fatal("expected nil response to pass through")
-	}
+	assert.Nil(t, got, "expected nil response to pass through")
 }
 
 func TestServerImplementsRunnable(t *testing.T) {
 	cfg := testConfig(t)
-	s := newTestServer(t, cfg)
-	var _ Runnable = s
+	var _ Runnable = newTestServer(t, cfg)
 }
 
 func TestServerImplementsOutputWriter(t *testing.T) {

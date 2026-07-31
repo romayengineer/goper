@@ -6,14 +6,11 @@ import (
 	"testing"
 
 	"github.com/romayengineer/goper/internal/capture"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCAURL(t *testing.T) {
-	got := CAURL(9099)
-	want := "http://localhost:9099/api/ca.pem"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
+	assert.Equal(t, "http://localhost:9099/api/ca.pem", CAURL(9099))
 }
 
 func TestNewServerReturnsServer(t *testing.T) {
@@ -21,15 +18,11 @@ func TestNewServerReturnsServer(t *testing.T) {
 	server := NewServer(18081, store, nil)
 
 	s, ok := server.(*Server)
-	if !ok {
-		t.Fatalf("expected *Server concrete type, got %T", server)
+	if !assert.True(t, ok, "expected *Server concrete type, got %T", server) {
+		return
 	}
-	if s.handler == nil {
-		t.Fatal("expected handler to be wired")
-	}
-	if s.port != 18081 {
-		t.Fatalf("port: got %d", s.port)
-	}
+	assert.NotNil(t, s.handler, "expected handler to be wired")
+	assert.Equal(t, 18081, s.port)
 }
 
 func TestServerRoutes(t *testing.T) {
@@ -56,9 +49,7 @@ func TestServerRoutes(t *testing.T) {
 		rec := httptest.NewRecorder()
 		s.router.ServeHTTP(rec, req)
 
-		if rec.Code != tc.want {
-			t.Fatalf("%s %s: got status %d, want %d", tc.method, tc.path, rec.Code, tc.want)
-		}
+		assert.Equal(t, tc.want, rec.Code, "%s %s", tc.method, tc.path)
 	}
 }
 
@@ -70,12 +61,8 @@ func TestServerCORS(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("OPTIONS status: got %d", rec.Code)
-	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Fatalf("CORS origin: got %q", got)
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
 }
 
 func TestServerImplementsRunnable(t *testing.T) {

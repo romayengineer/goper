@@ -4,6 +4,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestEntry(id string) *CapturedEntry {
@@ -22,19 +25,13 @@ func TestPushGet(t *testing.T) {
 	rb.Push(entry)
 
 	got := rb.Get("a")
-	if got == nil {
-		t.Fatal("expected entry to be found")
-	}
-	if got.ID != "a" {
-		t.Fatalf("got id %q, want %q", got.ID, "a")
-	}
+	require.NotNil(t, got, "expected entry to be found")
+	assert.Equal(t, EntryID("a"), got.ID)
 }
 
 func TestGetMissing(t *testing.T) {
 	rb := NewRingBuffer(10)
-	if got := rb.Get("nope"); got != nil {
-		t.Fatalf("expected nil, got %v", got)
-	}
+	assert.Nil(t, rb.Get("nope"))
 }
 
 func TestPushAssignsID(t *testing.T) {
@@ -43,12 +40,8 @@ func TestPushAssignsID(t *testing.T) {
 
 	rb.Push(entry)
 
-	if entry.ID == "" {
-		t.Fatal("expected Push to assign an ID")
-	}
-	if got := rb.Get(entry.ID); got == nil {
-		t.Fatalf("expected entry with auto-assigned id %q to be found", entry.ID)
-	}
+	assert.NotEmpty(t, entry.ID, "expected Push to assign an ID")
+	assert.NotNil(t, rb.Get(entry.ID), "expected entry with auto-assigned id %q to be found", entry.ID)
 }
 
 func TestPushEviction(t *testing.T) {
@@ -58,16 +51,10 @@ func TestPushEviction(t *testing.T) {
 		rb.Push(newTestEntry(string(rune('a' + i))))
 	}
 
-	if rb.Len() != 3 {
-		t.Fatalf("expected len 3 after eviction, got %d", rb.Len())
-	}
-	if got := rb.Get(EntryID("a")); got != nil {
-		t.Fatal("expected oldest entry 'a' to be evicted")
-	}
+	assert.Equal(t, 3, rb.Len())
+	assert.Nil(t, rb.Get(EntryID("a")), "expected oldest entry 'a' to be evicted")
 	for _, id := range []string{"b", "c", "d"} {
-		if got := rb.Get(EntryID(id)); got == nil {
-			t.Fatalf("expected entry %q to survive", id)
-		}
+		assert.NotNil(t, rb.Get(EntryID(id)), "expected entry %q to survive", id)
 	}
 }
 
@@ -78,9 +65,7 @@ func TestListAll(t *testing.T) {
 	rb.Push(newTestEntry("c"))
 
 	entries := rb.List(ListOpts{})
-	if len(entries) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(entries))
-	}
+	assert.Len(t, entries, 3)
 }
 
 func TestListSince(t *testing.T) {
@@ -91,12 +76,8 @@ func TestListSince(t *testing.T) {
 	rb.Push(newTestEntry("new"))
 
 	entries := rb.List(ListOpts{Since: time.Now().Add(-time.Minute)})
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry after since filter, got %d", len(entries))
-	}
-	if entries[0].ID != "new" {
-		t.Fatalf("expected 'new' to pass since filter, got %q", entries[0].ID)
-	}
+	require.Len(t, entries, 1)
+	assert.Equal(t, EntryID("new"), entries[0].ID)
 }
 
 func TestListMethod(t *testing.T) {
@@ -107,12 +88,8 @@ func TestListMethod(t *testing.T) {
 	rb.Push(post)
 
 	entries := rb.List(ListOpts{Method: "POST"})
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 POST entry, got %d", len(entries))
-	}
-	if entries[0].ID != "post" {
-		t.Fatalf("expected 'post', got %q", entries[0].ID)
-	}
+	require.Len(t, entries, 1)
+	assert.Equal(t, EntryID("post"), entries[0].ID)
 }
 
 func TestListStatus(t *testing.T) {
@@ -123,9 +100,8 @@ func TestListStatus(t *testing.T) {
 	rb.Push(notFound)
 
 	entries := rb.List(ListOpts{Status: 404})
-	if len(entries) != 1 || entries[0].ID != "nf" {
-		t.Fatalf("expected only 'nf' with status 404, got %d entries", len(entries))
-	}
+	require.Len(t, entries, 1)
+	assert.Equal(t, EntryID("nf"), entries[0].ID)
 }
 
 func TestListURL(t *testing.T) {
@@ -134,9 +110,8 @@ func TestListURL(t *testing.T) {
 	rb.Push(newTestEntry("b"))
 
 	entries := rb.List(ListOpts{URL: "http://example.com/a"})
-	if len(entries) != 1 || entries[0].ID != "a" {
-		t.Fatalf("expected only 'a' with matching URL, got %d entries", len(entries))
-	}
+	require.Len(t, entries, 1)
+	assert.Equal(t, EntryID("a"), entries[0].ID)
 }
 
 func TestListPagination(t *testing.T) {
@@ -145,28 +120,14 @@ func TestListPagination(t *testing.T) {
 		rb.Push(newTestEntry(string(rune('a' + i))))
 	}
 
-	entries := rb.List(ListOpts{Limit: 2})
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries with limit, got %d", len(entries))
-	}
-
-	entries = rb.List(ListOpts{Limit: 2, Offset: 2})
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries with offset 2, got %d", len(entries))
-	}
-
-	entries = rb.List(ListOpts{Limit: 10})
-	if len(entries) != 5 {
-		t.Fatalf("expected all 5 with large limit, got %d", len(entries))
-	}
+	assert.Len(t, rb.List(ListOpts{Limit: 2}), 2)
+	assert.Len(t, rb.List(ListOpts{Limit: 2, Offset: 2}), 2)
+	assert.Len(t, rb.List(ListOpts{Limit: 10}), 5)
 }
 
 func TestListEmpty(t *testing.T) {
 	rb := NewRingBuffer(10)
-	entries := rb.List(ListOpts{})
-	if entries != nil {
-		t.Fatalf("expected nil for empty buffer, got %v", entries)
-	}
+	assert.Nil(t, rb.List(ListOpts{}))
 }
 
 func TestClear(t *testing.T) {
@@ -176,12 +137,8 @@ func TestClear(t *testing.T) {
 
 	rb.Clear()
 
-	if rb.Len() != 0 {
-		t.Fatalf("expected len 0 after clear, got %d", rb.Len())
-	}
-	if got := rb.Get("a"); got != nil {
-		t.Fatal("expected entry to be gone after clear")
-	}
+	assert.Equal(t, 0, rb.Len())
+	assert.Nil(t, rb.Get("a"), "expected entry to be gone after clear")
 }
 
 func TestSubscribe(t *testing.T) {
@@ -189,14 +146,11 @@ func TestSubscribe(t *testing.T) {
 	ch := rb.Subscribe()
 	defer rb.Unsubscribe(ch)
 
-	entry := newTestEntry("a")
-	rb.Push(entry)
+	rb.Push(newTestEntry("a"))
 
 	select {
 	case got := <-ch:
-		if got.ID != "a" {
-			t.Fatalf("expected id 'a' on channel, got %q", got.ID)
-		}
+		assert.Equal(t, EntryID("a"), got.ID)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for subscribed entry")
 	}
@@ -220,9 +174,7 @@ func TestUnsubscribe(t *testing.T) {
 
 	select {
 	case _, ok := <-ch:
-		if ok {
-			t.Fatal("expected channel to be closed after unsubscribe")
-		}
+		assert.False(t, ok, "expected channel to be closed after unsubscribe")
 	case <-time.After(time.Second):
 		t.Fatal("expected channel close after unsubscribe")
 	}
@@ -269,7 +221,5 @@ func TestConcurrentPushList(t *testing.T) {
 
 	wg.Wait()
 
-	if rb.Len() > 1000 {
-		t.Fatalf("buffer exceeds capacity: %d", rb.Len())
-	}
+	assert.LessOrEqual(t, rb.Len(), 1000, "buffer exceeds capacity")
 }

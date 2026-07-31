@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/romayengineer/goper/internal/capture"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestJSONWriterWriteEntry(t *testing.T) {
@@ -24,20 +26,14 @@ func TestJSONWriterWriteEntry(t *testing.T) {
 		ResponseHeaders: map[string]string{"Content-Type": "application/json"},
 	}
 
-	if err := w.WriteEntry(entry); err != nil {
-		t.Fatalf("WriteEntry: %v", err)
-	}
+	require.NoError(t, w.WriteEntry(entry))
 
 	var got capture.CapturedEntry
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("output is not valid JSON: %v", err)
-	}
-	if got.ID != "abc" || got.Method != "GET" || got.StatusCode != 200 {
-		t.Fatalf("entry round-trip mismatch: %+v", got)
-	}
-	if !strings.HasSuffix(buf.String(), "\n") {
-		t.Fatal("expected output to end with newline")
-	}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got), "output should be valid JSON")
+	assert.Equal(t, "abc", string(got.ID))
+	assert.Equal(t, "GET", got.Method)
+	assert.Equal(t, 200, got.StatusCode)
+	assert.True(t, strings.HasSuffix(buf.String(), "\n"), "expected output to end with newline")
 }
 
 func TestJSONWriterMultipleEntries(t *testing.T) {
@@ -46,15 +42,11 @@ func TestJSONWriterMultipleEntries(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		entry := &capture.CapturedEntry{Method: "GET", URL: "http://example.com"}
-		if err := w.WriteEntry(entry); err != nil {
-			t.Fatalf("WriteEntry %d: %v", i, err)
-		}
+		require.NoError(t, w.WriteEntry(entry))
 	}
 
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 lines, got %d", len(lines))
-	}
+	assert.Len(t, lines, 3)
 }
 
 func TestJSONWriterIsWriter(t *testing.T) {

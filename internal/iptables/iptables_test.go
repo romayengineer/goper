@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockRunner struct {
@@ -52,85 +55,59 @@ func (m *mockRunner) countFlag(flag string) int {
 func TestNewManagerRules(t *testing.T) {
 	m := NewManager(8080, &mockRunner{})
 
-	if len(m.rules) != 3 {
-		t.Fatalf("expected 3 rules, got %d", len(m.rules))
-	}
+	assert.Len(t, m.rules, 3)
 
 	wantPort80 := "-t nat -A OUTPUT -p tcp --dport 80 -j REDIRECT --to-port 8080"
 	got := m.rules[1]
 	args := append([]string{"-t", got.table, "-A", got.chain}, got.spec...)
-	if strings.Join(args, " ") != wantPort80 {
-		t.Fatalf("rule 2 mismatch:\n got %s\nwant %s", strings.Join(args, " "), wantPort80)
-	}
+	assert.Equal(t, wantPort80, strings.Join(args, " "))
 }
 
 func TestSetupAddsAllRules(t *testing.T) {
 	runner := &mockRunner{}
 	m := NewManager(8080, runner)
 
-	if err := m.Setup(); err != nil {
-		t.Fatalf("Setup: %v", err)
-	}
-
-	if got := runner.countFlag("-A"); got != 3 {
-		t.Fatalf("expected 3 -A calls, got %d", got)
-	}
+	require.NoError(t, m.Setup())
+	assert.Equal(t, 3, runner.countFlag("-A"))
 }
 
 func TestSetupSkipsExistingRules(t *testing.T) {
 	runner := &mockRunner{rulesExist: true}
 	m := NewManager(8080, runner)
 
-	if err := m.Setup(); err != nil {
-		t.Fatalf("Setup: %v", err)
-	}
+	require.NoError(t, m.Setup())
 
-	if got := runner.countFlag("-C"); got != 3 {
-		t.Fatalf("expected 3 -C existence checks, got %d", got)
-	}
-	if got := runner.countFlag("-A"); got != 0 {
-		t.Fatalf("expected 0 -A calls when rules exist, got %d", got)
-	}
+	assert.Equal(t, 3, runner.countFlag("-C"))
+	assert.Equal(t, 0, runner.countFlag("-A"))
 }
 
 func TestSetupError(t *testing.T) {
 	runner := &mockRunner{err: errors.New("permission denied")}
 	m := NewManager(8080, runner)
 
-	if err := m.Setup(); err == nil {
-		t.Fatal("expected Setup to return error")
-	} else if !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	err := m.Setup()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permission denied")
 }
 
 func TestTeardownRemovesAllRules(t *testing.T) {
 	runner := &mockRunner{}
 	m := NewManager(8080, runner)
 
-	if err := m.Teardown(); err != nil {
-		t.Fatalf("Teardown: %v", err)
-	}
-
-	if got := runner.countFlag("-D"); got != 3 {
-		t.Fatalf("expected 3 -D calls, got %d", got)
-	}
+	require.NoError(t, m.Teardown())
+	assert.Equal(t, 3, runner.countFlag("-D"))
 }
 
 func TestTeardownErrorDoesNotFail(t *testing.T) {
 	runner := &mockRunner{err: errors.New("iptables failed")}
 	m := NewManager(8080, runner)
 
-	if err := m.Teardown(); err != nil {
-		t.Fatalf("Teardown should swallow per-rule errors, got %v", err)
-	}
+	assert.NoError(t, m.Teardown(), "Teardown should swallow per-rule errors")
 }
 
 func TestNewManagerNilRunnerDefaults(t *testing.T) {
 	m := NewManager(8080, nil)
-	if m.runner == nil {
-		t.Fatal("expected default OSRunner when nil runner provided")
-	}
+	assert.NotNil(t, m.runner, "expected default OSRunner when nil runner provided")
 }
 
 func TestManagerImplementsRuleManager(t *testing.T) {

@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCaptureRequest(t *testing.T) {
@@ -17,48 +20,27 @@ func TestCaptureRequest(t *testing.T) {
 
 	entry := CaptureRequest(req)
 
-	if entry.Method != http.MethodPost {
-		t.Fatalf("method: got %q want POST", entry.Method)
-	}
-	if entry.URL != "https://example.com/api/users?id=1" {
-		t.Fatalf("url: got %q", entry.URL)
-	}
-	if entry.Scheme != "https" {
-		t.Fatalf("scheme: got %q want https", entry.Scheme)
-	}
-	if entry.Host != "example.com" {
-		t.Fatalf("host: got %q want example.com", entry.Host)
-	}
-	if entry.Path != "/api/users" {
-		t.Fatalf("path: got %q", entry.Path)
-	}
-	if entry.RequestBody == nil || *entry.RequestBody != `{"name":"alice"}` {
-		t.Fatalf("body: got %v", entry.RequestBody)
-	}
-
-	if got := entry.RequestHeaders["Authorization"]; got != "***REDACTED***" {
-		t.Fatalf("authorization should be redacted, got %q", got)
-	}
-	if got := entry.RequestHeaders["X-Custom"]; got != "one" {
-		t.Fatalf("X-Custom: got %q", got)
-	}
+	assert.Equal(t, http.MethodPost, entry.Method)
+	assert.Equal(t, "https://example.com/api/users?id=1", entry.URL)
+	assert.Equal(t, "https", entry.Scheme)
+	assert.Equal(t, "example.com", entry.Host)
+	assert.Equal(t, "/api/users", entry.Path)
+	require.NotNil(t, entry.RequestBody)
+	assert.Equal(t, `{"name":"alice"}`, *entry.RequestBody)
+	assert.Equal(t, "***REDACTED***", entry.RequestHeaders["Authorization"])
+	assert.Equal(t, "one", entry.RequestHeaders["X-Custom"])
 
 	restored, err := io.ReadAll(req.Body)
-	if err != nil {
-		t.Fatalf("read restored body: %v", err)
-	}
-	if string(restored) != `{"name":"alice"}` {
-		t.Fatalf("body was not restored for re-read, got %q", string(restored))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, `{"name":"alice"}`, string(restored), "body should be restored for re-read")
 }
 
 func TestCaptureRequestNoBody(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
 	entry := CaptureRequest(req)
 
-	if entry.RequestBody == nil || *entry.RequestBody != "" {
-		t.Fatalf("expected empty string body, got %v", entry.RequestBody)
-	}
+	require.NotNil(t, entry.RequestBody)
+	assert.Empty(t, *entry.RequestBody)
 }
 
 func TestCaptureResponseJSON(t *testing.T) {
@@ -69,21 +51,12 @@ func TestCaptureResponseJSON(t *testing.T) {
 	start := time.Now()
 	cr := CaptureResponse(200, header, []byte(`{"ok":true}`), start.Add(-5*time.Millisecond))
 
-	if cr.StatusCode != 200 {
-		t.Fatalf("status: got %d", cr.StatusCode)
-	}
-	if cr.ContentType != "application/json" {
-		t.Fatalf("content type: got %q", cr.ContentType)
-	}
-	if cr.ResponseBody == nil || *cr.ResponseBody != `{"ok":true}` {
-		t.Fatalf("body: got %v", cr.ResponseBody)
-	}
-	if got := cr.ResponseHeaders["Set-Cookie"]; got != "***REDACTED***" {
-		t.Fatalf("set-cookie should be redacted, got %q", got)
-	}
-	if cr.DurationMs < 1 {
-		t.Fatalf("duration: got %d, want >= 1", cr.DurationMs)
-	}
+	assert.Equal(t, 200, cr.StatusCode)
+	assert.Equal(t, "application/json", cr.ContentType)
+	require.NotNil(t, cr.ResponseBody)
+	assert.Equal(t, `{"ok":true}`, *cr.ResponseBody)
+	assert.Equal(t, "***REDACTED***", cr.ResponseHeaders["Set-Cookie"])
+	assert.GreaterOrEqual(t, cr.DurationMs, int64(1))
 }
 
 func TestCaptureResponsePlainText(t *testing.T) {
@@ -91,9 +64,8 @@ func TestCaptureResponsePlainText(t *testing.T) {
 	header.Set("Content-Type", "text/plain")
 
 	cr := CaptureResponse(200, header, []byte("hello world"), time.Now())
-	if cr.ResponseBody == nil || *cr.ResponseBody != "hello world" {
-		t.Fatalf("expected printable body captured, got %v", cr.ResponseBody)
-	}
+	require.NotNil(t, cr.ResponseBody)
+	assert.Equal(t, "hello world", *cr.ResponseBody)
 }
 
 func TestCaptureResponseLargeBody(t *testing.T) {
@@ -106,9 +78,7 @@ func TestCaptureResponseLargeBody(t *testing.T) {
 	}
 
 	cr := CaptureResponse(200, header, big, time.Now())
-	if cr.ResponseBody != nil {
-		t.Fatalf("expected large body to be skipped")
-	}
+	assert.Nil(t, cr.ResponseBody, "expected large body to be skipped")
 }
 
 func TestCaptureResponseBinary(t *testing.T) {
@@ -117,9 +87,7 @@ func TestCaptureResponseBinary(t *testing.T) {
 
 	binary := []byte{0x00, 0x01, 0x02, 0xff, 0x00}
 	cr := CaptureResponse(200, header, binary, time.Now())
-	if cr.ResponseBody != nil {
-		t.Fatalf("expected binary body to be skipped")
-	}
+	assert.Nil(t, cr.ResponseBody, "expected binary body to be skipped")
 }
 
 func TestCombineEntry(t *testing.T) {
@@ -136,21 +104,12 @@ func TestCombineEntry(t *testing.T) {
 
 	combined := CombineEntry(reqEntry, result)
 
-	if combined.StatusCode != 201 {
-		t.Fatalf("status: got %d", combined.StatusCode)
-	}
-	if combined.ResponseBody == nil || *combined.ResponseBody != `{"created":true}` {
-		t.Fatalf("body: got %v", combined.ResponseBody)
-	}
-	if combined.DurationMs != 42 {
-		t.Fatalf("duration: got %d", combined.DurationMs)
-	}
-	if combined.Method != http.MethodGet {
-		t.Fatalf("method should carry over: got %q", combined.Method)
-	}
-	if combined.ID == "" {
-		t.Fatal("expected combined entry to have an ID")
-	}
+	assert.Equal(t, 201, combined.StatusCode)
+	require.NotNil(t, combined.ResponseBody)
+	assert.Equal(t, `{"created":true}`, *combined.ResponseBody)
+	assert.Equal(t, int64(42), combined.DurationMs)
+	assert.Equal(t, http.MethodGet, combined.Method)
+	assert.NotEmpty(t, combined.ID, "expected combined entry to have an ID")
 }
 
 func strPtr(s string) *string {

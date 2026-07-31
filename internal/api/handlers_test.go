@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/romayengineer/goper/internal/capture"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockStore struct {
@@ -119,9 +120,7 @@ func decodeList(t *testing.T, resp *httptest.ResponseRecorder) (int, []*capture.
 		Count int                      `json:"count"`
 		Data  []*capture.CapturedEntry `json:"data"`
 	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
 	return body.Count, body.Data
 }
 
@@ -135,13 +134,10 @@ func TestListRequests(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ListRequests(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d", rec.Code)
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
 	count, data := decodeList(t, rec)
-	if count != 2 || len(data) != 2 {
-		t.Fatalf("expected 2 entries, got count=%d len=%d", count, len(data))
-	}
+	assert.Equal(t, 2, count)
+	assert.Len(t, data, 2)
 }
 
 func TestListRequestsEmpty(t *testing.T) {
@@ -152,13 +148,10 @@ func TestListRequestsEmpty(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ListRequests(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d", rec.Code)
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
 	count, data := decodeList(t, rec)
-	if count != 0 || len(data) != 0 {
-		t.Fatalf("expected empty array, got count=%d len=%d", count, len(data))
-	}
+	assert.Equal(t, 0, count)
+	assert.Empty(t, data)
 }
 
 func TestListRequestsFilters(t *testing.T) {
@@ -174,9 +167,9 @@ func TestListRequestsFilters(t *testing.T) {
 	h.ListRequests(rec, req)
 
 	count, data := decodeList(t, rec)
-	if count != 1 || data[0].ID != "post" {
-		t.Fatalf("expected only POST entry, got count=%d", count)
-	}
+	assert.Equal(t, 1, count)
+	require.Len(t, data, 1)
+	assert.Equal(t, "post", string(data[0].ID))
 }
 
 func TestListRequestsInvalidParamsIgnored(t *testing.T) {
@@ -188,9 +181,7 @@ func TestListRequestsInvalidParamsIgnored(t *testing.T) {
 	h.ListRequests(rec, req)
 
 	count, _ := decodeList(t, rec)
-	if count != 1 {
-		t.Fatalf("invalid params should be ignored, got count=%d", count)
-	}
+	assert.Equal(t, 1, count, "invalid params should be ignored")
 }
 
 func TestGetRequestFound(t *testing.T) {
@@ -204,16 +195,10 @@ func TestGetRequestFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d", rec.Code)
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
 	var entry capture.CapturedEntry
-	if err := json.Unmarshal(rec.Body.Bytes(), &entry); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if entry.ID != "abc" {
-		t.Fatalf("id: got %q", entry.ID)
-	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &entry))
+	assert.Equal(t, "abc", string(entry.ID))
 }
 
 func TestGetRequestNotFound(t *testing.T) {
@@ -227,9 +212,7 @@ func TestGetRequestNotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status: got %d, want 404", rec.Code)
-	}
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestClearRequests(t *testing.T) {
@@ -240,12 +223,8 @@ func TestClearRequests(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ClearRequests(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d", rec.Code)
-	}
-	if !store.cleared {
-		t.Fatal("expected store.Clear to be called")
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, store.cleared, "expected store.Clear to be called")
 }
 
 func TestGetStats(t *testing.T) {
@@ -259,12 +238,8 @@ func TestGetStats(t *testing.T) {
 	var body struct {
 		Count int `json:"count"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if body.Count != 2 {
-		t.Fatalf("count: got %d", body.Count)
-	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, 2, body.Count)
 }
 
 func TestGetCA(t *testing.T) {
@@ -275,15 +250,9 @@ func TestGetCA(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.GetCA(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d", rec.Code)
-	}
-	if rec.Body.String() != string(pem) {
-		t.Fatal("body does not match CA PEM")
-	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/x-pem-file" {
-		t.Fatalf("content type: got %q", ct)
-	}
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, string(pem), rec.Body.String())
+	assert.Equal(t, "application/x-pem-file", rec.Header().Get("Content-Type"))
 }
 
 func TestGetCANotFound(t *testing.T) {
@@ -293,9 +262,7 @@ func TestGetCANotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.GetCA(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status: got %d, want 404", rec.Code)
-	}
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 type flushRecorder struct {
@@ -330,9 +297,7 @@ func TestStreamRequests(t *testing.T) {
 		t.Fatal("timed out waiting for stream to close")
 	}
 
-	if !strings.Contains(rec.Body.String(), "data: ") {
-		t.Fatalf("expected SSE data frame, got: %q", rec.Body.String())
-	}
+	assert.Contains(t, rec.Body.String(), "data: ")
 }
 
 type nonFlusher struct {
@@ -346,9 +311,7 @@ func TestStreamRequestsNotFlusher(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.StreamRequests(nonFlusher{rec}, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status: got %d, want 500", rec.Code)
-	}
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestHandlerImplementsRequestHandler(t *testing.T) {
@@ -359,12 +322,6 @@ func TestWriteJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeJSON(rec, http.StatusCreated, map[string]string{"ok": "true"})
 
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("status: got %d", rec.Code)
-	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
-		t.Fatalf("content type: got %q", ct)
-	}
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 }
-
-
