@@ -22,6 +22,15 @@ chown -R "$CHROME_USER":"$CHROME_USER" "$CHROME_HOME/.pki"
 CHROME_BIN=$(node -e "console.log(require('playwright').chromium.executablePath())")
 echo "[goper-chrome] launching: $CHROME_BIN"
 
+# Block Chrome's on-device AI model downloads: make the model directories
+# root-writable only so the browser user (pwuser) cannot persist models.
+UDD="$CHROME_HOME/.config/goper-chrome"
+for d in OnDeviceHeadSuggestModel OptGuideOnDeviceModel optimization_guide_model_store OnDeviceModelExecutables; do
+  mkdir -p "$UDD/$d"
+  chown root:root "$UDD/$d"
+  chmod 0755 "$UDD/$d"
+done
+
 # Transparent mode: no --proxy-server flag. goper's iptables rules redirect
 # this process's traffic to the proxy. Chrome runs as a non-root user so the
 # uid-0 owner-skip rule (goper's own traffic) does not exempt it, and its
