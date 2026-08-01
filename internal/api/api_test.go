@@ -26,7 +26,9 @@ func TestNewServerReturnsServer(t *testing.T) {
 }
 
 func TestServerRoutes(t *testing.T) {
-	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("a")}}
+	entry := sampleEntry("a")
+	entry.URL = "http://127.0.0.1:1/" // unroutable: replay fails fast, no real network
+	store := &mockStore{entries: []*capture.CapturedEntry{entry}}
 	server := NewServer(0, store, []byte("pem"))
 	s := server.(*Server)
 
@@ -38,9 +40,13 @@ func TestServerRoutes(t *testing.T) {
 		{http.MethodGet, "/api/requests", http.StatusOK},
 		{http.MethodGet, "/api/requests/a", http.StatusOK},
 		{http.MethodGet, "/api/requests/unknown", http.StatusNotFound},
+		{http.MethodPost, "/api/requests/a/replay", http.StatusBadGateway},
 		{http.MethodDelete, "/api/requests", http.StatusOK},
 		{http.MethodGet, "/api/stats", http.StatusOK},
 		{http.MethodGet, "/api/ca.pem", http.StatusOK},
+		{http.MethodGet, "/", http.StatusOK},
+		{http.MethodGet, "/ui", http.StatusOK},
+		{http.MethodGet, "/index.html", http.StatusOK},
 		{http.MethodGet, "/nonexistent", http.StatusNotFound},
 	}
 
@@ -67,4 +73,19 @@ func TestServerCORS(t *testing.T) {
 
 func TestServerImplementsRunnable(t *testing.T) {
 	var _ Runnable = NewServer(0, &mockStore{}, nil)
+}
+
+func TestServerServesUI(t *testing.T) {
+	server := NewServer(0, &mockStore{}, nil)
+	s := server.(*Server)
+
+	for _, path := range []string{"/", "/ui", "/index.html"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		s.router.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s", path)
+		assert.Contains(t, rec.Body.String(), "goper", "GET %s should serve the dashboard", path)
+		assert.Contains(t, rec.Body.String(), "EventSource", "dashboard should use SSE for live updates")
+	}
 }

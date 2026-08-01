@@ -20,6 +20,10 @@ func TestDefault(t *testing.T) {
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 	assert.Empty(t, cfg.OutputDir)
 	assert.Equal(t, "json", cfg.OutputFormat)
+	assert.Zero(t, cfg.RequestBodyLimit, "request body limit defaults to unlimited")
+	assert.Equal(t, int64(1<<20), cfg.ResponseBodyLimit, "response body limit defaults to 1 MiB")
+	assert.Empty(t, cfg.CaptureInclude)
+	assert.Empty(t, cfg.CaptureExclude)
 }
 
 func TestConfigImplementsProvider(t *testing.T) {
@@ -28,16 +32,20 @@ func TestConfigImplementsProvider(t *testing.T) {
 
 func TestProviderMethods(t *testing.T) {
 	cfg := &Config{
-		Port:         1234,
-		APIPort:      5678,
-		CADir:        "/tmp/ca",
-		Transparent:  true,
-		Verbose:      true,
-		BufferSize:   500,
-		LogFormat:    "json",
-		LogLevel:     slog.LevelDebug,
-		OutputDir:    "/tmp/out",
-		OutputFormat: "ndjson",
+		Port:              1234,
+		APIPort:           5678,
+		CADir:             "/tmp/ca",
+		Transparent:       true,
+		Verbose:           true,
+		BufferSize:        500,
+		LogFormat:         "json",
+		LogLevel:          slog.LevelDebug,
+		OutputDir:         "/tmp/out",
+		OutputFormat:      "ndjson",
+		RequestBodyLimit:  1024,
+		ResponseBodyLimit: 2048,
+		CaptureInclude:    `\.json$`,
+		CaptureExclude:    `ads?\.`,
 	}
 
 	assert.Equal(t, 1234, cfg.ProxyPort())
@@ -50,6 +58,10 @@ func TestProviderMethods(t *testing.T) {
 	assert.Equal(t, slog.LevelDebug, cfg.GetLogLevel())
 	assert.Equal(t, "/tmp/out", cfg.GetOutputDir())
 	assert.Equal(t, "ndjson", cfg.GetOutputFormat())
+	assert.Equal(t, int64(1024), cfg.GetRequestBodyLimit())
+	assert.Equal(t, int64(2048), cfg.GetResponseBodyLimit())
+	assert.Equal(t, `\.json$`, cfg.GetCaptureInclude())
+	assert.Equal(t, `ads?\.`, cfg.GetCaptureExclude())
 }
 
 func TestProviderMethodsZeroValues(t *testing.T) {

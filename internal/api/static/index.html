@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>goper — capture dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --fg: #e6edf3; --dim: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --err: #f85149; --warn: #d29922; --muted: #21262d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 13px/1.45 -apple-system, "SF Mono", Menlo, Consolas, monospace; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+           padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  h1 span { color: var(--accent); }
+  #stats { display: flex; gap: 14px; color: var(--dim); flex-wrap: wrap; }
+  #stats b { color: var(--fg); font-weight: 600; }
+  .spacer { flex: 1; }
+  button { background: var(--muted); color: var(--fg); border: 1px solid var(--border);
+           border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+  a.btn { color: var(--fg); text-decoration: none; border: 1px solid var(--border);
+          border-radius: 6px; padding: 4px 10px; background: var(--muted); }
+  .filters { display: flex; gap: 8px; padding: 8px 16px; background: var(--panel);
+             border-bottom: 1px solid var(--border); align-items: center; flex-wrap: wrap; }
+  .filters input, .filters select { background: var(--bg); color: var(--fg);
+             border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+  .filters label { color: var(--dim); }
+  main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  #list { border-right: 1px solid var(--border); overflow: auto; max-height: calc(100vh - 130px); }
+  table { width: 100%; border-collapse: collapse; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: left;
+       padding: 6px 10px; color: var(--dim); font-weight: 600; border-bottom: 1px solid var(--border); z-index: 1; }
+  td { padding: 5px 10px; border-bottom: 1px solid var(--muted); white-space: nowrap;
+       overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+  tr { cursor: pointer; }
+  tr:hover td { background: var(--muted); }
+  tr.sel td { background: #1f3a5f; }
+  .m { font-weight: 600; }
+  .m.GET { color: var(--ok); } .m.POST { color: var(--warn); }
+  .m.PUT { color: var(--accent); } .m.DELETE { color: var(--err); }
+  .st { display: inline-block; min-width: 30px; text-align: center; border-radius: 4px;
+        padding: 0 4px; background: var(--muted); }
+  .st[data-c^="2"] { color: var(--ok); } .st[data-c^="3"] { color: var(--accent); }
+  .st[data-c^="4"] { color: var(--warn); } .st[data-c^="5"] { color: var(--err); }
+  .host { color: var(--dim); } .path { color: var(--fg); }
+  #detail { padding: 12px 16px; overflow: auto; max-height: calc(100vh - 130px); }
+  #detail h2 { font-size: 13px; margin: 12px 0 6px; color: var(--dim); text-transform: uppercase;
+               letter-spacing: .05em; }
+  #detail h2:first-child { margin-top: 0; }
+  #detail .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; }
+  #detail .kv div:nth-child(odd) { color: var(--dim); }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+        padding: 8px; overflow: auto; margin: 4px 0; font: inherit; white-space: pre-wrap; word-break: break-word; }
+  #empty { padding: 40px; text-align: center; color: var(--dim); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: var(--dim); margin-right: 6px; vertical-align: middle; }
+  .dot.live { background: var(--ok); }
+</style>
+</head>
+<body>
+<header>
+  <h1>goper <span>capture dashboard</span></h1>
+  <div id="stats">
+    <span>entries <b id="s-count">–</b></span>
+    <span>capacity <b id="s-cap">–</b></span>
+    <span>evictions <b id="s-evict">–</b></span>
+    <span>bytes <b id="s-bytes">–</b></span>
+    <span>uptime <b id="s-uptime">–</b></span>
+  </div>
+  <div class="spacer"></div>
+  <span id="live-ind"><span class="dot" id="dot"></span>live</span>
+  <a class="btn" href="/api/ca.pem" download>CA cert</a>
+  <button class="danger" id="btn-clear">Clear</button>
+</header>
+
+<div class="filters">
+  <label>method
+    <select id="f-method">
+      <option value="">all</option>
+      <option>GET</option><option>POST</option><option>PUT</option>
+      <option>DELETE</option><option>PATCH</option><option>OPTIONS</option>
+    </select>
+  </label>
+  <label>status <input id="f-status" size="4" placeholder="200"></label>
+  <label>host/path contains <input id="f-url" size="24" placeholder="api.example.com"></label>
+  <button id="btn-apply">Apply</button>
+  <button id="btn-reset">Reset</button>
+</div>
+
+<main>
+  <div id="list">
+    <table>
+      <thead><tr>
+        <th>time</th><th>method</th><th>status</th><th>host</th><th>path</th><th>ms</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty" hidden>No captured requests yet — traffic intercepted by goper will appear here.</div>
+  </div>
+  <div id="detail">
+    <h2>Request</h2>
+    <div class="kv" id="d-req"></div>
+    <h2>Request headers</h2>
+    <pre id="d-req-h">–</pre>
+    <h2>Request body</h2>
+    <pre id="d-req-b">–</pre>
+    <h2>Response</h2>
+    <div class="kv" id="d-res"></div>
+    <h2>Response headers</h2>
+    <pre id="d-res-h">–</pre>
+    <h2>Response body</h2>
+    <pre id="d-res-b">–</pre>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const rows = $("rows");
+let entries = [];
+let selectedId = null;
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+function pretty(body, ct) {
+  if (body == null) return "–";
+  const t = (ct || "").toLowerCase();
+  if (t.includes("json")) {
+    try { return JSON.stringify(JSON.parse(body), null, 2); } catch (_) { /* fall through */ }
+  }
+  return body.length > 200000 ? body.slice(0, 200000) + "\n… (truncated)" : body;
+}
+function headersHtml(h) {
+  return Object.entries(h || {}).map(([k, v]) => esc(k) + ": " + esc(v)).join("\n") || "–";
+}
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour12: false }) + "." + String(d.getMilliseconds()).padStart(3, "0");
+}
+function fmtBytes(n) {
+  if (n == null) return "–";
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " KiB";
+  return (n / 1048576).toFixed(1) + " MiB";
+}
+function fmtUptime(s) {
+  if (s == null) return "–";
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600),
+        m = Math.floor(s % 3600 / 60);
+  return d ? d + "d " + h + "h" : h ? h + "h " + m + "m" : m + "m " + Math.floor(s % 60) + "s";
+}
+
+function render() {
+  const fm = $("f-method").value, fs = $("f-status").value.trim(),
+        fu = $("f-url").value.trim().toLowerCase();
+  const filtered = entries.filter(e =>
+    (!fm || e.method === fm) &&
+    (!fs || String(e.status_code) === fs) &&
+    (!fu || (e.host + e.path).toLowerCase().includes(fu))
+  );
+  rows.innerHTML = filtered.map(e => `
+    <tr data-id="${esc(e.id)}" class="${e.id === selectedId ? "sel" : ""}">
+      <td>${fmtTime(e.timestamp)}</td>
+      <td class="m ${e.method}">${esc(e.method)}</td>
+      <td><span class="st" data-c="${e.status_code}">${e.status_code}</span></td>
+      <td class="host">${esc(e.host)}</td>
+      <td class="path">${esc(e.path)}</td>
+      <td>${e.duration_ms}</td>
+    </tr>`).join("");
+  $("empty").hidden = filtered.length > 0;
+  rows.querySelectorAll("tr").forEach(tr => tr.addEventListener("click", () => select(tr.dataset.id)));
+}
+function upsert(e) {
+  const i = entries.findIndex(x => x.id === e.id);
+  if (i >= 0) entries[i] = e; else entries.unshift(e);
+  entries = entries.slice(0, 500);
+  render();
+}
+async function select(id) {
+  selectedId = id;
+  render();
+  try {
+    const r = await fetch("/api/requests/" + encodeURIComponent(id));
+    if (!r.ok) return;
+    const e = await r.json();
+    $("d-req").innerHTML =
+      `<div>${esc(e.method)} ${esc(e.url)}</div>` +
+      `<div>id ${esc(e.id)}</div>`;
+    $("d-req-h").textContent = headersHtml(e.request_headers);
+    $("d-req-b").textContent = pretty(e.request_body, e.request_headers?.["content-type"]);
+    $("d-res").innerHTML =
+      `<div>status ${e.status_code}</div><div>${e.duration_ms} ms</div>` +
+      `<div>content-type</div><div>${esc(e.content_type)}</div>`;
+    $("d-res-h").textContent = headersHtml(e.response_headers);
+    $("d-res-b").textContent = pretty(e.response_body, e.content_type);
+  } catch (_) { /* keep old detail */ }
+}
+async function refreshList() {
+  try {
+    const p = new URLSearchParams({ limit: "200" });
+    const r = await fetch("/api/requests?" + p);
+    if (!r.ok) return;
+    const j = await r.json();
+    const seen = new Set(entries.map(e => e.id));
+    const fresh = (j.data || []).filter(e => !seen.has(e.id));
+    entries = fresh.concat(entries).slice(0, 500);
+    render();
+  } catch (_) { /* server not ready yet */ }
+}
+async function refreshStats() {
+  try {
+    const r = await fetch("/api/stats");
+    if (!r.ok) return;
+    const s = await r.json();
+    $("s-count").textContent = s.count;
+    $("s-cap").textContent = s.capacity;
+    $("s-evict").textContent = s.evictions;
+    $("s-bytes").textContent = fmtBytes(s.bytes_captured);
+    $("s-uptime").textContent = fmtUptime(s.uptime_seconds);
+  } catch (_) { /* not up yet */ }
+}
+
+$("btn-apply").addEventListener("click", render);
+$("btn-reset").addEventListener("click", () => {
+  $("f-method").value = ""; $("f-status").value = ""; $("f-url").value = ""; render();
+});
+$("btn-clear").addEventListener("click", async () => {
+  if (!confirm("Clear all captured requests?")) return;
+  await fetch("/api/requests", { method: "DELETE" });
+  entries = []; render();
+});
+
+refreshList();
+refreshStats();
+setInterval(refreshStats, 2000);
+const es = new EventSource("/api/requests/stream?backfill=0");
+es.onmessage = ev => { try { upsert(JSON.parse(ev.data)); } catch (_) {} };
+es.onopen = () => { $("dot").classList.add("live"); };
+es.onerror = () => { $("dot").classList.remove("live"); };
+</script>
+</body>
+</html>

@@ -60,5 +60,5 @@ func TestDefaultRecorderCombineEntry(t *testing.T) {
 }
 
 func TestDefaultRecorderImplementsRecorder(t *testing.T) {
-	var _ Recorder = DefaultRecorder{}
+	var _ Recorder = &DefaultRecorder{}
 }

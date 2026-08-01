@@ -18,16 +18,20 @@ import (
 )
 
 type mockConfig struct {
-	port         int
-	apiPort      int
-	caDir        string
-	transparent  bool
-	verbose      bool
-	bufferSize   int
-	logFormat    string
-	logLevel     slog.Level
-	outputDir    string
-	outputFormat string
+	port              int
+	apiPort           int
+	caDir             string
+	transparent       bool
+	verbose           bool
+	bufferSize        int
+	logFormat         string
+	logLevel          slog.Level
+	outputDir         string
+	outputFormat      string
+	requestBodyLimit  int64
+	responseBodyLimit int64
+	captureInclude    string
+	captureExclude    string
 }
 
 func (m mockConfig) ProxyPort() int          { return m.port }
@@ -40,6 +44,10 @@ func (m mockConfig) GetLogFormat() string    { return m.logFormat }
 func (m mockConfig) GetLogLevel() slog.Level { return m.logLevel }
 func (m mockConfig) GetOutputDir() string    { return m.outputDir }
 func (m mockConfig) GetOutputFormat() string { return m.outputFormat }
+func (m mockConfig) GetRequestBodyLimit() int64  { return m.requestBodyLimit }
+func (m mockConfig) GetResponseBodyLimit() int64 { return m.responseBodyLimit }
+func (m mockConfig) GetCaptureInclude() string   { return m.captureInclude }
+func (m mockConfig) GetCaptureExclude() string   { return m.captureExclude }
 
 type mockStore struct {
 	pushed []*capture.CapturedEntry
@@ -61,6 +69,9 @@ func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
 }
 func (m *mockStore) Clear()                   { m.pushed = nil }
 func (m *mockStore) Len() int                 { return len(m.pushed) }
+func (m *mockStore) Stats() capture.StoreStats {
+	return capture.StoreStats{Count: len(m.pushed), Capacity: 100}
+}
 func (m *mockStore) Subscribe() chan *capture.CapturedEntry {
 	return make(chan *capture.CapturedEntry)
 }
@@ -161,6 +172,79 @@ func TestHandleRequest(t *testing.T) {
 	assert.Equal(t, http.MethodGet, data.entry.Method)
 	assert.False(t, data.start.IsZero(), "expected start time set")
 	assert.Equal(t, 1, rec.captureRequests)
+}
+
+func TestShouldCaptureDefaultsToTrue(t *testing.T) {
+	s := newTestServer(t, testConfig(t))
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/anything?q=1", nil)
+	assert.True(t, s.shouldCapture(req), "no filters configured means capture everything")
+}
+
+func TestShouldCaptureIncludeFilter(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.captureInclude = `\.json$`
+	s := newTestServer(t, cfg)
+
+	reqJSON := httptest.NewRequest(http.MethodGet, "http://example.com/api/users.json", nil)
+	assert.True(t, s.shouldCapture(reqJSON))
+
+	reqHTML := httptest.NewRequest(http.MethodGet, "http://example.com/index.html", nil)
+	assert.False(t, s.shouldCapture(reqHTML))
+}
+
+func TestShouldCaptureExcludeFilter(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.captureExclude = `(google-analytics|doubleclick)`
+	s := newTestServer(t, cfg)
+
+	reqOK := httptest.NewRequest(http.MethodGet, "http://example.com/api", nil)
+	assert.True(t, s.shouldCapture(reqOK))
+
+	reqTracked := httptest.NewRequest(http.MethodGet, "http://example.com/doubleclick/pixel?x=1", nil)
+	assert.False(t, s.shouldCapture(reqTracked))
+}
+
+func TestHandleRequestSkippedByFilter(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.captureExclude = `^http://example\.com/static/`
+	s := newTestServer(t, cfg)
+	rec := &mockRecorder{}
+	s.recorder = rec
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/static/app.js", nil)
+	ctx := &goproxy.ProxyCtx{}
+
+	returned, resp := s.handleRequest(req, ctx)
+	assert.Same(t, req, returned)
+	assert.Nil(t, resp)
+	assert.Nil(t, ctx.UserData, "filtered request must not be captured")
+	assert.Zero(t, rec.captureRequests)
+
+	// And the response handler no-ops for it.
+	store := &mockStore{}
+	s.store = store
+	respObj := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+	}
+	got := s.handleResponse(respObj, &goproxy.ProxyCtx{UserData: nil})
+	assert.Same(t, respObj, got)
+	assert.Empty(t, store.pushed, "filtered traffic must not reach the store")
+}
+
+func TestNewServerInvalidRegexes(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.captureInclude = "[unclosed"
+	_, err := NewServer(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "capture-include")
+
+	cfg2 := testConfig(t)
+	cfg2.captureExclude = "[unclosed"
+	_, err = NewServer(cfg2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "capture-exclude")
 }
 
 func TestHandleResponse(t *testing.T) {

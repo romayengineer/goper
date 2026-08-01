@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/elazarl/goproxy"
@@ -32,6 +33,9 @@ type Server struct {
 	recorder capture.Recorder
 	outputs  []output.Writer
 
+	includeRE *regexp.Regexp
+	excludeRE *regexp.Regexp
+
 	resolver OriginalDstResolver
 	peeker   SNIPeeker
 }
@@ -51,7 +55,22 @@ func NewServer(cfg config.Provider) (Runnable, error) {
 		cache:    cache,
 		ca:       ca,
 		config:   cfg,
-		recorder: capture.DefaultRecorder{},
+		recorder: capture.NewDefaultRecorder(cfg.GetRequestBodyLimit(), cfg.GetResponseBodyLimit()),
+	}
+
+	if include := cfg.GetCaptureInclude(); include != "" {
+		re, err := regexp.Compile(include)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --capture-include regex %q: %w", include, err)
+		}
+		s.includeRE = re
+	}
+	if exclude := cfg.GetCaptureExclude(); exclude != "" {
+		re, err := regexp.Compile(exclude)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --capture-exclude regex %q: %w", exclude, err)
+		}
+		s.excludeRE = re
 	}
 
 	s.proxy.Verbose = cfg.IsVerbose()
@@ -101,6 +120,13 @@ func (s *Server) CA() CAProvider {
 }
 
 func (s *Server) handleRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+	// Skip capture entirely for URLs that don't match the configured filters.
+	// handleResponse no-ops when UserData is absent, so filtered traffic is
+	// proxied but neither stored nor written to outputs.
+	if !s.shouldCapture(r) {
+		return r, nil
+	}
+
 	start := time.Now()
 	entry := s.recorder.CaptureRequest(r)
 	ctx.UserData = captureCtx{
@@ -108,6 +134,19 @@ func (s *Server) handleRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Re
 		start: start,
 	}
 	return r, nil
+}
+
+// shouldCapture applies the optional --capture-include / --capture-exclude
+// regexes against the full request URL. With no filters set, everything is
+// captured (the historical behavior).
+func (s *Server) shouldCapture(r *http.Request) bool {
+	if s.includeRE != nil && !s.includeRE.MatchString(r.URL.String()) {
+		return false
+	}
+	if s.excludeRE != nil && s.excludeRE.MatchString(r.URL.String()) {
+		return false
+	}
+	return true
 }
 
 func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {

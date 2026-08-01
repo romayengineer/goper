@@ -14,17 +14,40 @@ type Recorder interface {
 	CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry
 }
 
-type DefaultRecorder struct{}
-
-func (DefaultRecorder) CaptureRequest(r *http.Request) CapturedEntry {
-	return CaptureRequest(r)
+// DefaultRecorder captures requests and responses, honoring optional body
+// size limits. A limit of 0 means unlimited. Response bodies that exceed the
+// limit are skipped (kept nil); the request/response still proxies normally.
+type DefaultRecorder struct {
+	RequestBodyLimit  int64
+	ResponseBodyLimit int64
 }
 
-func (DefaultRecorder) CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start time.Time) CaptureResult {
-	return CaptureResponse(statusCode, header, bodyBytes, start)
+// NewDefaultRecorder builds a recorder with the given body size limits
+// (bytes; 0 = unlimited).
+func NewDefaultRecorder(requestBodyLimit, responseBodyLimit int64) Recorder {
+	return &DefaultRecorder{
+		RequestBodyLimit:  requestBodyLimit,
+		ResponseBodyLimit: responseBodyLimit,
+	}
 }
 
-func (DefaultRecorder) CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry {
+func (r *DefaultRecorder) CaptureRequest(req *http.Request) CapturedEntry {
+	entry := CaptureRequest(req)
+	if r.RequestBodyLimit > 0 && entry.RequestBody != nil && int64(len(*entry.RequestBody)) > r.RequestBodyLimit {
+		entry.RequestBody = nil
+	}
+	return entry
+}
+
+func (r *DefaultRecorder) CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start time.Time) CaptureResult {
+	result := CaptureResponse(statusCode, header, bodyBytes, start)
+	if r.ResponseBodyLimit > 0 && result.ResponseBody != nil && int64(len(*result.ResponseBody)) > r.ResponseBodyLimit {
+		result.ResponseBody = nil
+	}
+	return result
+}
+
+func (r *DefaultRecorder) CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry {
 	return CombineEntry(reqEntry, result)
 }
 

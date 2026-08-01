@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -78,6 +79,16 @@ func (m *mockStore) Len() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.entries)
+}
+
+func (m *mockStore) Stats() capture.StoreStats {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return capture.StoreStats{
+		Count:     len(m.entries),
+		Capacity:  10000,
+		StartTime: time.Now(),
+	}
 }
 
 func (m *mockStore) Subscribe() chan *capture.CapturedEntry {
@@ -236,10 +247,123 @@ func TestGetStats(t *testing.T) {
 	h.GetStats(rec, req)
 
 	var body struct {
-		Count int `json:"count"`
+		Count          int   `json:"count"`
+		Capacity       int   `json:"capacity"`
+		Evictions      int64 `json:"evictions"`
+		BytesCaptured  int64 `json:"bytes_captured"`
+		UptimeSeconds  int64 `json:"uptime_seconds"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, 2, body.Count)
+	assert.Equal(t, 10000, body.Capacity)
+	assert.Zero(t, body.Evictions)
+	assert.Zero(t, body.BytesCaptured)
+	assert.GreaterOrEqual(t, body.UptimeSeconds, int64(0))
+}
+
+func TestStreamRequestsBackfill(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("old1"), sampleEntry("old2")}}
+	h := newHandler(store, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/stream?backfill=2", nil).WithContext(ctx)
+	rec := &flushRecorder{httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.StreamRequests(rec, req)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-done
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `"id":"old1"`, "expected historical entry in backfill")
+	assert.Contains(t, body, `"id":"old2"`, "expected historical entry in backfill")
+}
+
+func TestStreamRequestsBackfillDisabled(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("old1")}}
+	h := newHandler(store, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/stream?backfill=0", nil).WithContext(ctx)
+	rec := &flushRecorder{httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.StreamRequests(rec, req)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-done
+
+	assert.NotContains(t, rec.Body.String(), "old1", "backfill=0 must not send history")
+}
+
+func TestReplayRequest(t *testing.T) {
+	var gotHost, gotMethod, gotBody string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		gotMethod = r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"replayed":true}`))
+	}))
+	defer target.Close()
+
+	body := `{"x":1}`
+	entry := sampleEntry("abc")
+	entry.Method = "POST"
+	entry.URL = target.URL
+	entry.RequestBody = &body
+	entry.RequestHeaders = map[string]string{
+		"Content-Type": "application/json",
+		"X-Trace":      "abc",
+		"Host":         "stale.example.com", // hop-by-hop: must be stripped
+	}
+
+	h := newHandler(&mockStore{entries: []*capture.CapturedEntry{entry}}, nil)
+
+	r := chi.NewRouter()
+	r.Post("/api/requests/{id}/replay", h.ReplayRequest)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/requests/abc/replay", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		StatusCode int    `json:"status_code"`
+		Body       string `json:"body"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, `{"replayed":true}`, resp.Body)
+
+	assert.Equal(t, "POST", gotMethod)
+	assert.Equal(t, `{"x":1}`, gotBody)
+	assert.NotEqual(t, "stale.example.com", gotHost, "stale Host header must be stripped on replay")
+}
+
+func TestReplayRequestNotFound(t *testing.T) {
+	h := newHandler(&mockStore{}, nil)
+
+	r := chi.NewRouter()
+	r.Post("/api/requests/{id}/replay", h.ReplayRequest)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/requests/nope/replay", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestGetCA(t *testing.T) {

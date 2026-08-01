@@ -112,6 +112,47 @@ func TestCombineEntry(t *testing.T) {
 	assert.NotEmpty(t, combined.ID, "expected combined entry to have an ID")
 }
 
+func TestDefaultRecorderRequestBodyLimit(t *testing.T) {
+	rec := NewDefaultRecorder(10, 0) // 10-byte request cap, unlimited response
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader("this body is way too long"))
+	entry := rec.CaptureRequest(req)
+	assert.Nil(t, entry.RequestBody, "request body over limit should be skipped")
+
+	reqSmall := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader("short"))
+	entrySmall := rec.CaptureRequest(reqSmall)
+	require.NotNil(t, entrySmall.RequestBody)
+	assert.Equal(t, "short", *entrySmall.RequestBody)
+
+	// The body must still be restored for proxying even when skipped.
+	restored, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "this body is way too long", string(restored))
+}
+
+func TestDefaultRecorderZeroRequestLimitUnlimited(t *testing.T) {
+	rec := NewDefaultRecorder(0, 0) // 0 = unlimited
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/", strings.NewReader("a fairly long body"))
+	entry := rec.CaptureRequest(req)
+	require.NotNil(t, entry.RequestBody)
+	assert.Equal(t, "a fairly long body", *entry.RequestBody)
+}
+
+func TestDefaultRecorderResponseBodyLimit(t *testing.T) {
+	rec := NewDefaultRecorder(0, 5) // 5-byte response cap
+
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+
+	cr := rec.CaptureResponse(200, header, []byte(`{"ok":true}`), time.Now())
+	assert.Nil(t, cr.ResponseBody, "response body over limit should be skipped")
+
+	crSmall := rec.CaptureResponse(200, header, []byte(`{"a"}`), time.Now()) // 5 bytes = at limit
+	require.NotNil(t, crSmall.ResponseBody)
+	assert.Equal(t, `{"a"}`, *crSmall.ResponseBody)
+}
+
 func strPtr(s string) *string {
 	return &s
 }

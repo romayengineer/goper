@@ -11,8 +11,19 @@ type Store interface {
 	List(opts ListOpts) []*CapturedEntry
 	Clear()
 	Len() int
+	Stats() StoreStats
 	Subscribe() chan *CapturedEntry
 	Unsubscribe(ch chan *CapturedEntry)
+}
+
+// StoreStats is a point-in-time snapshot of the store, surfaced by the API
+// /api/stats endpoint.
+type StoreStats struct {
+	Count         int       `json:"count"`
+	Capacity      int       `json:"capacity"`
+	Evictions     int64     `json:"evictions"`
+	BytesCaptured int64     `json:"bytes_captured"`
+	StartTime     time.Time `json:"start_time"`
 }
 
 type RingBuffer struct {
@@ -24,6 +35,10 @@ type RingBuffer struct {
 	capacity int
 	idIndex map[EntryID]int
 
+	startTime     time.Time
+	evictions     int64
+	bytesCaptured int64
+
 	subscribers []chan *CapturedEntry
 }
 
@@ -32,9 +47,10 @@ func NewRingBuffer(capacity int) *RingBuffer {
 		capacity = 10000
 	}
 	return &RingBuffer{
-		buffer:   make([]*CapturedEntry, capacity),
-		capacity: capacity,
-		idIndex:  make(map[EntryID]int),
+		buffer:    make([]*CapturedEntry, capacity),
+		capacity:  capacity,
+		idIndex:   make(map[EntryID]int),
+		startTime: time.Now(),
 	}
 }
 
@@ -52,7 +68,9 @@ func (rb *RingBuffer) Push(entry *CapturedEntry) {
 		rb.buffer[rb.head] = nil
 		rb.head = (rb.head + 1) % rb.capacity
 		rb.count--
+		rb.evictions++
 	}
+	rb.bytesCaptured += entryBytes(entry)
 
 	rb.buffer[rb.tail] = entry
 	rb.idIndex[entry.ID] = rb.tail
@@ -149,6 +167,31 @@ func (rb *RingBuffer) Len() int {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
 	return rb.count
+}
+
+func (rb *RingBuffer) Stats() StoreStats {
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+	return StoreStats{
+		Count:         rb.count,
+		Capacity:      rb.capacity,
+		Evictions:     rb.evictions,
+		BytesCaptured: rb.bytesCaptured,
+		StartTime:     rb.startTime,
+	}
+}
+
+// entryBytes is the number of body bytes actually retained in an entry
+// (request + response). Bodies that were skipped (nil) contribute zero.
+func entryBytes(e *CapturedEntry) int64 {
+	var n int64
+	if e.RequestBody != nil {
+		n += int64(len(*e.RequestBody))
+	}
+	if e.ResponseBody != nil {
+		n += int64(len(*e.ResponseBody))
+	}
+	return n
 }
 
 func (rb *RingBuffer) Subscribe() chan *CapturedEntry {

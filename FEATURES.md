@@ -29,23 +29,29 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] Captures status code, response headers + body, content type, duration
 - [x] Sensitive header redaction (`authorization`, `cookie`, `set-cookie`, `proxy-authorization`)
 - [x] Response body cap of 1MB (larger bodies skipped)
+- [x] Configurable body size limits: `--request-body-limit` / `--response-body-limit` (bytes; 0 = unlimited; response defaults to 1 MiB)
 - [x] Binary/non-printable body detection (skipped unless JSON content type)
 - [x] Request body restored after read so proxying still works
+- [x] URL filtering: `--capture-include` / `--capture-exclude` regexes against the full URL; filtered traffic is proxied but neither stored nor written to outputs
 - [x] Entry IDs: `YYYYMMDDHHMMSS-<counter>` format, unique, auto-assigned on push
 - [x] Thread-safe in-memory ring buffer with configurable capacity (default 10,000)
-- [x] Auto-eviction of oldest entries at capacity
+- [x] Auto-eviction of oldest entries at capacity (eviction count tracked in stats)
 - [x] O(1) lookup by ID via index map
 - [x] Filtering: since, method, status, URL + limit/offset pagination
 - [x] Clear, Len, subscriber channels for live feeds
+- [x] Store stats: lifetime bytes captured + eviction/uptime counters
 
 ### HTTP API (`internal/api`)
 
 - [x] `GET /api/requests` — paginated list with filters
 - [x] `GET /api/requests/{id}` — single entry detail
-- [x] `GET /api/requests/stream` — SSE live feed (with flush support)
+- [x] `GET /api/requests/stream` — SSE live feed with flush support
+- [x] SSE backfill: `?backfill=N` replays the N most recent entries on connect (default 50, `0` disables)
 - [x] `DELETE /api/requests` — clear captured data
 - [x] `GET /api/ca.pem` — download root CA cert
-- [x] `GET /api/stats` — entry count
+- [x] `GET /api/stats` — count, capacity, evictions, bytes captured, uptime, start time
+- [x] `POST /api/requests/{id}/replay` — re-sends a captured request (method, headers, body) to its original URL and returns the fresh response; hop-by-hop headers (Host, Content-Length, …) stripped
+- [x] Web UI dashboard at `/` (also `/ui`, `/index.html`) — embedded single-file HTML page, no build step or CDN: live table over SSE, method/status/URL filters, entry detail with pretty-printed bodies, stats bar, clear + CA download
 - [x] CORS middleware (`*` origin, GET/POST/PUT/DELETE/OPTIONS)
 - [x] Panic recovery middleware
 - [x] Request logging middleware (method, path, status, bytes, duration)
@@ -68,7 +74,8 @@ Tracking document for implemented features (checked) and new feature ideas (open
 
 ### CLI & Runtime (`cmd/goper`, `internal/config`)
 
-- [x] Flags: `--port`, `--api-port`, `--ca-dir`, `--transparent`, `--verbose`, `--buffer`, `--output-dir`, `--output-format`, `--log-format`
+- [x] Flags: `--port`, `--api-port`, `--ca-dir`, `--transparent`, `--verbose`, `--buffer`, `--output-dir`, `--output-format`, `--log-format`, `--request-body-limit`, `--response-body-limit`, `--capture-include`, `--capture-exclude`
+- [x] Flag validation fails fast on invalid regexes / output formats
 - [x] `~` expansion in `--ca-dir`
 - [x] Text or JSON structured logging via `log/slog`
 - [x] SIGINT/SIGTERM graceful shutdown with iptables teardown
@@ -115,15 +122,8 @@ Tracking document for implemented features (checked) and new feature ideas (open
 Use this section to track planned or requested features.
 
 - [ ] Response modification (inject headers, rewrite bodies)
-- [ ] Request replay (resend captured requests)
 - [ ] Persistent storage (SQLite or file-based) for the ring buffer
-- [ ] Web UI dashboard for browsing captured traffic
 - [ ] WebSocket frame capture (currently only upgrade headers)
 - [ ] gRPC support (HTTP/2 proto-aware capture)
 - [ ] QUIC / HTTP/3 interception (UDP; not currently redirected)
 - [ ] Distributed capture → central aggregator
-- [ ] URL filtering rules (only capture URLs matching a pattern)
-- [ ] Request body size limit flag (currently unlimited)
-- [ ] Configurable response body size limit (currently hardcoded 1MB)
-- [ ] Stats endpoint enrichment (bytes captured, uptime, evictions)
-- [ ] SSE replay/backfill of historical entries on connect

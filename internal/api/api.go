@@ -34,9 +34,15 @@ func NewServer(port int, store capture.Store, caPEM []byte) Runnable {
 	r.Get("/api/requests", handler.ListRequests)
 	r.Get("/api/requests/stream", handler.StreamRequests)
 	r.Get("/api/requests/{id}", handler.GetRequest)
+	r.Post("/api/requests/{id}/replay", handler.ReplayRequest)
 	r.Delete("/api/requests", handler.ClearRequests)
 	r.Get("/api/stats", handler.GetStats)
 	r.Get("/api/ca.pem", handler.GetCA)
+
+	// Web UI dashboard (embedded single-file page).
+	r.Get("/", serveUI)
+	r.Get("/ui", serveUI)
+	r.Get("/index.html", serveUI)
 
 	return &Server{
 		handler: handler,

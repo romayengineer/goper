@@ -3,8 +3,10 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -18,6 +20,7 @@ type RequestHandler interface {
 	ClearRequests(w http.ResponseWriter, r *http.Request)
 	GetStats(w http.ResponseWriter, r *http.Request)
 	GetCA(w http.ResponseWriter, r *http.Request)
+	ReplayRequest(w http.ResponseWriter, r *http.Request)
 }
 
 type Handler struct {
@@ -82,6 +85,11 @@ func (h *Handler) GetRequest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entry)
 }
 
+// defaultBackfill is how many most-recent historical entries a new SSE
+// client receives before live events, unless overridden via ?backfill=N
+// (0 disables backfill entirely).
+const defaultBackfill = 50
+
 func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -92,6 +100,26 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+
+	backfill := defaultBackfill
+	if v := r.URL.Query().Get("backfill"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			backfill = n
+		}
+	}
+
+	// Backfill: send the most recent entries first so a client that connects
+	// mid-stream catches up. Entries captured between this snapshot and the
+	// Subscribe below may be sent twice (snapshot then live) — harmless for
+	// idempotent consumers; avoiding it would require a per-client cursor.
+	if backfill > 0 {
+		history := h.store.List(capture.ListOpts{Limit: backfill})
+		for _, entry := range history {
+			if !writeSSE(w, flusher, entry) {
+				return
+			}
+		}
+	}
 
 	ch := h.store.Subscribe()
 	defer h.store.Unsubscribe(ch)
@@ -106,14 +134,23 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			data, err := json.Marshal(entry)
-			if err != nil {
-				continue
+			if !writeSSE(w, flusher, entry) {
+				return
 			}
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
 		}
 	}
+}
+
+func writeSSE(w http.ResponseWriter, flusher http.Flusher, entry *capture.CapturedEntry) bool {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return true
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		return false
+	}
+	flusher.Flush()
+	return true
 }
 
 func (h *Handler) ClearRequests(w http.ResponseWriter, r *http.Request) {
@@ -122,8 +159,14 @@ func (h *Handler) ClearRequests(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
+	s := h.store.Stats()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"count": h.store.Len(),
+		"count":          s.Count,
+		"capacity":       s.Capacity,
+		"evictions":      s.Evictions,
+		"bytes_captured": s.BytesCaptured,
+		"uptime_seconds": int64(time.Since(s.StartTime).Seconds()),
+		"start_time":     s.StartTime,
 	})
 }
 
@@ -141,4 +184,74 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+
+// replayMaxBody caps how much of a replayed response is returned to the
+// caller (the response itself is streamed in full to the upstream target).
+const replayMaxBody = 1 << 20 // 1 MiB
+
+// hopByHopHeaders are stripped when rebuilding a replayed request; they are
+// connection-specific and meaningless (or actively harmful) when resent.
+var hopByHopHeaders = map[string]bool{
+	"connection":          true,
+	"proxy-connection":    true,
+	"keep-alive":          true,
+	"transfer-encoding":   true,
+	"te":                  true,
+	"trailer":             true,
+	"upgrade":             true,
+	"host":                true,
+	"content-length":      true,
+}
+
+// ReplayRequest re-sends a captured request to its original URL using the
+// stored method, headers and body, and returns the fresh response. Useful for
+// re-executing an API call after a fix, or for testing idempotent endpoints.
+func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
+	id := capture.EntryID(chi.URLParam(r, "id"))
+	entry := h.store.Get(id)
+	if entry == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "entry not found"})
+		return
+	}
+
+	var body io.Reader
+	if entry.RequestBody != nil {
+		body = strings.NewReader(*entry.RequestBody)
+	}
+
+	req, err := http.NewRequest(entry.Method, entry.URL, body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	for k, v := range entry.RequestHeaders {
+		if hopByHopHeaders[strings.ToLower(k)] {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, replayMaxBody))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status_code": resp.StatusCode,
+		"headers":     resp.Header,
+		"body":        string(respBody),
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
 }

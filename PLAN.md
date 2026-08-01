@@ -183,12 +183,12 @@ Sensitive headers (authorization, cookie, set-cookie) are redacted by default.
 ### Phase 3: Capture Engine
 
 - [ ] `ResponseRecorder` wraps `http.ResponseWriter` + `http.Request` (currently captures from `*http.Response` in the response handler)
-- [ ] Configurable body size limit (currently hardcoded 1MB)
+- [x] Configurable body size limit (currently hardcoded 1MB) — `--request-body-limit` / `--response-body-limit`
 
 ### Phase 4: HTTP API
 
 - [ ] Request-ID middleware
-- [ ] `GET /api/stats` — ring buffer stats + uptime (currently returns count only)
+- [x] `GET /api/stats` — ring buffer stats + uptime (count, capacity, evictions, bytes captured, uptime, start time)
 
 ### Phase 6: Integration Tests
 
