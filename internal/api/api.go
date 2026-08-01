@@ -53,8 +53,11 @@ func NewServer(port int, store capture.Store, caPEM []byte) Runnable {
 
 func (s *Server) Run() error {
 	addr := fmt.Sprintf(":%d", s.port)
-	slog.Info("api listening", "addr", addr)
-	return http.ListenAndServe(addr, s.router)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", addr, err)
+	}
+	return s.RunWithListener(ln)
 }
 
 func (s *Server) RunWithListener(l net.Listener) error {

@@ -19,47 +19,10 @@ import (
 )
 
 func main() {
-	cfg := config.Default()
-	logFormat := ""
-
-	flag.IntVar(&cfg.Port, "port", cfg.Port, "proxy listen port")
-	flag.IntVar(&cfg.APIPort, "api-port", cfg.APIPort, "API server port")
-	flag.StringVar(&cfg.CADir, "ca-dir", cfg.CADir, "CA certificate directory")
-	flag.BoolVar(&cfg.Transparent, "transparent", cfg.Transparent, "enable transparent proxy mode (requires iptables + CAP_NET_ADMIN)")
-	flag.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "verbose logging (sets log level to debug)")
-	flag.IntVar(&cfg.BufferSize, "buffer", cfg.BufferSize, "ring buffer size")
-	flag.StringVar(&logFormat, "log-format", "text", "log format (text or json)")
-	flag.StringVar(&cfg.OutputDir, "output-dir", cfg.OutputDir, "directory to write JSON response bodies (empty = disabled)")
-	flag.StringVar(&cfg.OutputFormat, "output-format", cfg.OutputFormat, "output format (json or ndjson)")
-	flag.Int64Var(&cfg.RequestBodyLimit, "request-body-limit", cfg.RequestBodyLimit, "max request body bytes to capture (0 = unlimited)")
-	flag.Int64Var(&cfg.ResponseBodyLimit, "response-body-limit", cfg.ResponseBodyLimit, "max response body bytes to capture (0 = unlimited)")
-	flag.StringVar(&cfg.CaptureInclude, "capture-include", cfg.CaptureInclude, "only capture URLs matching this regex")
-	flag.StringVar(&cfg.CaptureExclude, "capture-exclude", cfg.CaptureExclude, "never capture URLs matching this regex")
-	flag.Parse()
-
-	if cfg.OutputFormat != "json" && cfg.OutputFormat != "ndjson" {
-		fmt.Fprintln(os.Stderr, "invalid --output-format: must be 'json' or 'ndjson'")
+	cfg, err := parseConfig(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
-	}
-
-	if cfg.CaptureInclude != "" {
-		if _, err := regexp.Compile(cfg.CaptureInclude); err != nil {
-			fmt.Fprintf(os.Stderr, "invalid --capture-include regex: %v\n", err)
-			os.Exit(2)
-		}
-	}
-	if cfg.CaptureExclude != "" {
-		if _, err := regexp.Compile(cfg.CaptureExclude); err != nil {
-			fmt.Fprintf(os.Stderr, "invalid --capture-exclude regex: %v\n", err)
-			os.Exit(2)
-		}
-	}
-
-	if cfg.Verbose {
-		cfg.LogLevel = slog.LevelDebug
-	}
-	if logFormat == "json" {
-		cfg.LogFormat = "json"
 	}
 
 	var h slog.Handler
@@ -70,10 +33,6 @@ func main() {
 		h = slog.NewTextHandler(os.Stderr, opts)
 	}
 	slog.SetDefault(slog.New(h))
-
-	if home, err := os.UserHomeDir(); err == nil {
-		cfg.CADir = strings.Replace(cfg.CADir, "~", home, 1)
-	}
 
 	slog.Info("starting",
 		"port", cfg.Port,
@@ -157,4 +116,59 @@ func main() {
 	}
 
 	slog.Info("stopped")
+}
+
+// parseConfig parses command-line args into a *config.Config, applying flag
+// defaults, validation (output format, capture regexes), derived settings
+// (verbose → debug level, --log-format json) and ~ expansion in --ca-dir.
+// Extracted from main so it is unit-testable; main exits with code 2 on error.
+func parseConfig(args []string) (*config.Config, error) {
+	cfg := config.Default()
+	logFormat := ""
+
+	fs := flag.NewFlagSet("goper", flag.ContinueOnError)
+	fs.IntVar(&cfg.Port, "port", cfg.Port, "proxy listen port")
+	fs.IntVar(&cfg.APIPort, "api-port", cfg.APIPort, "API server port")
+	fs.StringVar(&cfg.CADir, "ca-dir", cfg.CADir, "CA certificate directory")
+	fs.BoolVar(&cfg.Transparent, "transparent", cfg.Transparent, "enable transparent proxy mode (requires iptables + CAP_NET_ADMIN)")
+	fs.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "verbose logging (sets log level to debug)")
+	fs.IntVar(&cfg.BufferSize, "buffer", cfg.BufferSize, "ring buffer size")
+	fs.StringVar(&logFormat, "log-format", "text", "log format (text or json)")
+	fs.StringVar(&cfg.OutputDir, "output-dir", cfg.OutputDir, "directory to write JSON response bodies (empty = disabled)")
+	fs.StringVar(&cfg.OutputFormat, "output-format", cfg.OutputFormat, "output format (json or ndjson)")
+	fs.Int64Var(&cfg.RequestBodyLimit, "request-body-limit", cfg.RequestBodyLimit, "max request body bytes to capture (0 = unlimited)")
+	fs.Int64Var(&cfg.ResponseBodyLimit, "response-body-limit", cfg.ResponseBodyLimit, "max response body bytes to capture (0 = unlimited)")
+	fs.StringVar(&cfg.CaptureInclude, "capture-include", cfg.CaptureInclude, "only capture URLs matching this regex")
+	fs.StringVar(&cfg.CaptureExclude, "capture-exclude", cfg.CaptureExclude, "never capture URLs matching this regex")
+
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+
+	if cfg.OutputFormat != "json" && cfg.OutputFormat != "ndjson" {
+		return nil, fmt.Errorf("invalid --output-format: must be 'json' or 'ndjson'")
+	}
+	if cfg.CaptureInclude != "" {
+		if _, err := regexp.Compile(cfg.CaptureInclude); err != nil {
+			return nil, fmt.Errorf("invalid --capture-include regex: %w", err)
+		}
+	}
+	if cfg.CaptureExclude != "" {
+		if _, err := regexp.Compile(cfg.CaptureExclude); err != nil {
+			return nil, fmt.Errorf("invalid --capture-exclude regex: %w", err)
+		}
+	}
+
+	if cfg.Verbose {
+		cfg.LogLevel = slog.LevelDebug
+	}
+	if logFormat == "json" {
+		cfg.LogFormat = "json"
+	}
+
+	if home, err := os.UserHomeDir(); err == nil {
+		cfg.CADir = strings.Replace(cfg.CADir, "~", home, 1)
+	}
+
+	return cfg, nil
 }

@@ -112,6 +112,15 @@ func (s *Server) runTransparent(l net.Listener) error {
 func (s *Server) handleTransparentConn(conn net.Conn) {
 	defer conn.Close()
 
+	// Ensure defaults even if invoked outside runTransparent (mirrors the
+	// initialization runTransparent performs for its accept loop).
+	if s.resolver == nil {
+		s.resolver = defaultResolver()
+	}
+	if s.peeker == nil {
+		s.peeker = DefaultSNIPeeker{}
+	}
+
 	if err := conn.SetReadDeadline(time.Now().Add(peekTimeout)); err != nil {
 		return
 	}

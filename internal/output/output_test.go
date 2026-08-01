@@ -3,6 +3,9 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -116,4 +119,91 @@ func TestJSONWriterNilPointers(t *testing.T) {
 
 func TestJSONWriterIsWriter(t *testing.T) {
 	var _ Writer = NewJSONWriter(&bytes.Buffer{})
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write(p []byte) (int, error) {
+	return 0, fmt.Errorf("disk full")
+}
+
+func TestJSONWriterWriteError(t *testing.T) {
+	w := NewJSONWriter(failingWriter{})
+	err := w.WriteEntry(&capture.CapturedEntry{ID: "a"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk full")
+}
+
+// ---- real-filesystem tests (the OSFileSystem adapter used in production) ----
+
+func TestOSFileSystemRealOperations(t *testing.T) {
+	fs := OSFileSystem{}
+	base := t.TempDir()
+
+	dir := filepath.Join(base, "a", "b")
+	require.NoError(t, fs.MkdirAll(dir, 0o755))
+	require.DirExists(t, dir)
+
+	path := filepath.Join(dir, "f.txt")
+	require.NoError(t, fs.WriteFile(path, []byte("one"), 0o644))
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "one", string(content))
+
+	f, err := fs.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.Write([]byte("two"))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	content, err = os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "onetwo", string(content))
+
+	require.NoError(t, fs.Chmod(path, 0o600))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestNewJSONBodyWriterRealFS(t *testing.T) {
+	dir := t.TempDir()
+	w := NewJSONBodyWriter(dir)
+
+	body := `{"ok":true}`
+	entry := &capture.CapturedEntry{
+		ID:          "abc",
+		Host:        "api.example.com",
+		ContentType: "application/json",
+		ResponseBody: &body,
+	}
+	require.NoError(t, w.WriteEntry(entry))
+
+	path := filepath.Join(dir, "api.example.com", "abc.json")
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), `"ok": true`, "expected pretty-printed JSON")
+}
+
+func TestNewNDJSONBodyWriterRealFS(t *testing.T) {
+	dir := t.TempDir()
+	w := NewNDJSONBodyWriter(dir)
+
+	for _, id := range []string{"a", "b"} {
+		body := `{"id":"` + id + `"}`
+		entry := &capture.CapturedEntry{
+			ID:           capture.EntryID(id),
+			Host:         "api.example.com",
+			ContentType:  "application/json",
+			ResponseBody: &body,
+		}
+		require.NoError(t, w.WriteEntry(entry))
+	}
+
+	path := filepath.Join(dir, "api.example.com", "responses.jsonl")
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	require.Len(t, lines, 2, "two entries → two jsonl lines")
+	assert.Contains(t, lines[0], `"id":"a"`)
+	assert.Contains(t, lines[1], `"id":"b"`)
 }

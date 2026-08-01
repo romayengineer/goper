@@ -92,15 +92,11 @@ func (s *Server) AddOutput(w output.Writer) {
 
 func (s *Server) Run() error {
 	addr := fmt.Sprintf(":%d", s.config.ProxyPort())
-	if s.config.IsTransparent() {
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			return fmt.Errorf("transparent listen: %w", err)
-		}
-		return s.runTransparent(ln)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", addr, err)
 	}
-	slog.Info("proxy listening", "addr", addr)
-	return http.ListenAndServe(addr, s.proxy)
+	return s.RunWithListener(ln)
 }
 
 func (s *Server) RunWithListener(l net.Listener) error {

@@ -174,6 +174,45 @@ func TestCertCacheImplementsCertStore(t *testing.T) {
 	var _ CertStore = NewCertCache(ca)
 }
 
+func TestLoadOrCreateCAInvalidPEM(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("not a pem"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-key.pem"), []byte("also not a pem"), 0o644))
+
+	_, err := LoadOrCreateCA(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse CA key pair")
+}
+
+func TestLoadOrCreateCAMissingKey(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("cert"), 0o644))
+
+	_, err := LoadOrCreateCA(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read CA key")
+}
+
+func TestLoadOrCreateCAMkdirError(t *testing.T) {
+	// A file where the CA directory would have to be created: MkdirAll fails.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+
+	_, err := LoadOrCreateCA(filepath.Join(blocker, "sub"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create CA dir")
+}
+
+func TestLoadOrCreateCARejectsCorruptCert(t *testing.T) {
+	dir := t.TempDir()
+	// Valid PEM block shape but not a real cert/key → X509KeyPair fails.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-key.pem"), []byte("-----BEGIN EC PRIVATE KEY-----\nAAAA\n-----END EC PRIVATE KEY-----\n"), 0o644))
+
+	_, err := LoadOrCreateCA(dir)
+	require.Error(t, err)
+}
+
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
