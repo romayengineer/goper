@@ -86,11 +86,22 @@ echo "[goper-chrome] final DISPLAY=$DISPLAY"
 # uid-0 owner-skip rule (goper's own traffic) does not exempt it, and its
 # sandbox stays enabled (no --no-sandbox). The translate offer is disabled by
 # the managed policy + translate.enabled pref (see above).
+#
+# Interaction latency: --disable-backgrounding-occluded-windows and
+# --disable-renderer-backgrounding stop Chrome from throttling renderers it
+# believes are "occluded"/"backgrounded" (a misdetection that happens over
+# remote X11 transports and makes typing/clicking feel laggy).
+# --process-per-site keeps the renderer-process count low, which matters a
+# lot on CPU-constrained VMs (e.g. Colima's default 2 vCPUs): fewer processes
+# means far less scheduler contention for software rendering.
 exec setpriv --reuid="$CHROME_USER" --regid="$CHROME_USER" --init-groups env HOME="$CHROME_HOME" "$CHROME_BIN" \
   --disable-gpu \
   --disable-dev-shm-usage \
   --disable-quic \
   --disable-translate \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --process-per-site \
   --remote-debugging-port=9222 \
   --remote-debugging-address=0.0.0.0 \
   --remote-allow-origins='*' \

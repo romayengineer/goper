@@ -102,7 +102,9 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] `docker-compose.integration.yml` — Xvfb overlay for headless/CI runs
 - [x] Healthchecks for goper (API stats) and chrome (CDP version)
 - [x] `browser/` image: installs goper CA into system + NSS trust stores, launches Chrome with no proxy configuration
+- [x] macOS interaction-latency fixes: fontconfig rules prefer fast Latin fonts (Liberation Sans/Serif/Mono) over the image's default CJK WenQuanYi Zen Hei for all text (wqy stays for zh pages only) — `browser/fontconfig/`; Chrome runs with `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding` (no remote-X11 renderer throttling) and `--process-per-site` (low process count for CPU-constrained VMs)
 - [x] `browser/playwright-example.js` — drives the running Chrome via CDP through goper
+- [x] `browser/bench-typing.js` — CDP typing benchmark (per-keystroke processing time) for measuring interaction latency
 - [x] `Makefile` targets: build, run, docker, up, down, test (unit/integration/e2e/mac), cover, lint, clean
 
 ### Tests

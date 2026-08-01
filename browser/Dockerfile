@@ -11,6 +11,16 @@ RUN apt-get update \
         x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Font rendering speed: the base image's fontconfig rules make the huge CJK
+# font WenQuanYi Zen Hei the default for ALL sans-serif text (including Latin
+# search-bar typing), which is slow under CPU-only rendering and a major
+# source of input lag in the windowed X11 setup. Prefer the lightweight
+# Liberation fonts for Latin text, keep wqy-zenhei for zh-language glyphs
+# only. See browser/fontconfig/.
+RUN rm -f /etc/fonts/conf.d/25-wqy-zenhei.conf /etc/fonts/conf.d/64-wqy-zenhei.conf
+COPY fontconfig/ /etc/fonts/conf.d/
+RUN fc-cache -f
+
 # Chrome runs as the non-root 'pwuser' (uid 1000) so goper's iptables
 # owner-skip rule (uid 0) does not exempt its traffic.
 RUN mkdir -p /home/pwuser/.config/goper-chrome /home/pwuser/.pki/nssdb \
