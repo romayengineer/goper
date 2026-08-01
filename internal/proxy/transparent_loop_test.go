@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
@@ -217,6 +219,70 @@ func TestHandleTransparentConnTLSPeekFailure(t *testing.T) {
 	_, _ = io.Copy(io.Discard, client) // drain until EOF
 
 	assert.Zero(t, s.Store().Len(), "failed TLS peek must not capture anything")
+}
+
+// TestHandleTransparentConnTLSOverLoopback drives an HTTPS request through the
+// full transparent TLS path: ClientHello → SNI peek → MITM handshake (goper
+// CA) → inner HTTP → goproxy → TLS target → capture.
+func TestHandleTransparentConnTLSOverLoopback(t *testing.T) {
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"mitm":true}`))
+	}))
+	defer target.Close()
+
+	targetAddr := strings.TrimPrefix(target.URL, "https://")
+
+	s := newTestServer(t, testConfig(t))
+	// goproxy must trust the TLS target's cert when re-forwarding.
+	targetPool := x509.NewCertPool()
+	targetPool.AddCert(target.Certificate())
+	s.proxy.Tr = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: targetPool}}
+	s.resolver = mockResolver{}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		s.handleTransparentConn(conn)
+	}()
+
+	// The client trusts goper's CA, so the MITM certificate (signed for SNI
+	// "localhost") validates.
+	clientPool := x509.NewCertPool()
+	clientPool.AddCert(s.CA().Certificate())
+
+	raw, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer raw.Close()
+
+	client := tls.Client(raw, &tls.Config{RootCAs: clientPool, ServerName: "localhost"})
+	require.NoError(t, client.Handshake())
+
+	_, err = fmt.Fprintf(client, "GET /secure HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", targetAddr)
+	require.NoError(t, err)
+
+	_ = client.SetReadDeadline(time.Now().Add(10 * time.Second))
+	resp, err := http.ReadResponse(bufio.NewReader(client), nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.JSONEq(t, `{"mitm":true}`, string(body))
+
+	entry := waitForEntry(t, s.Store())
+	require.NotNil(t, entry, "transparent HTTPS request must be captured")
+	assert.Equal(t, http.MethodGet, entry.Method)
+	assert.Equal(t, "https", entry.Scheme)
+	require.NotNil(t, entry.ResponseBody)
+	assert.JSONEq(t, `{"mitm":true}`, *entry.ResponseBody)
 }
 
 // TestRunTransparentAcceptLoop exercises the accept loop: it serves a

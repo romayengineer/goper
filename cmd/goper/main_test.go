@@ -3,10 +3,14 @@ package main
 import (
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/romayengineer/goper/internal/config"
+	"github.com/romayengineer/goper/internal/proxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -108,4 +112,122 @@ func TestParseConfigTildeExpansionOnlyFirst(t *testing.T) {
 	cfg, err := parseConfig([]string{"--ca-dir", "~/a~/b"})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, "a~/b"), cfg.CADir, "only the leading ~ is expanded")
+}
+
+// ---- run() lifecycle tests ----
+
+func TestRunNewServerError(t *testing.T) {
+	// CA dir under a regular file: LoadOrCreateCA fails → run returns 1
+	// before starting any servers or waiting on signals.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+
+	cfg := config.Default()
+	cfg.CADir = filepath.Join(blocker, "sub")
+
+	assert.Equal(t, 1, run(cfg), "proxy server creation failure must exit 1")
+}
+
+func TestRunTransparentNonRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires a non-root user for the privilege check")
+	}
+
+	cfg := config.Default()
+	cfg.CADir = t.TempDir()
+	cfg.Transparent = true
+
+	assert.Equal(t, 1, run(cfg), "transparent mode as non-root must fail fast")
+}
+
+// TestRunGracefulShutdown starts the full lifecycle (both servers on
+// ephemeral ports) and verifies SIGTERM triggers a clean shutdown with exit
+// code 0.
+func TestRunGracefulShutdown(t *testing.T) {
+	// Guard channel: absorb any SIGTERM sent before run() registers its own
+	// handler, so the test process can never die from our own signal.
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, syscall.SIGTERM)
+	defer signal.Stop(guard)
+
+	cfg := config.Default()
+	cfg.CADir = t.TempDir()
+	cfg.Port = 0 // ephemeral
+	cfg.APIPort = 0
+	cfg.BufferSize = 10
+
+	done := make(chan int, 1)
+	go func() { done <- run(cfg) }()
+
+	deadline := time.After(15 * time.Second)
+	for {
+		select {
+		case code := <-done:
+			assert.Equal(t, 0, code, "graceful shutdown after SIGTERM must exit 0")
+			return
+		case <-deadline:
+			t.Fatal("run did not shut down after SIGTERM")
+		default:
+		}
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func TestSetupLoggingJSON(t *testing.T) {
+	cfg := config.Default()
+	cfg.LogFormat = "json"
+	setupLogging(cfg)
+	_, ok := slog.Default().Handler().(*slog.JSONHandler)
+	assert.True(t, ok, "expected a JSON handler after setupLogging with json format")
+}
+
+func TestSetupLoggingText(t *testing.T) {
+	cfg := config.Default()
+	cfg.LogFormat = "text"
+	setupLogging(cfg)
+	_, ok := slog.Default().Handler().(*slog.TextHandler)
+	assert.True(t, ok, "expected a text handler after setupLogging with text format")
+}
+
+func TestCheckTransparentPrivileges(t *testing.T) {
+	err := checkTransparentPrivileges()
+	if os.Geteuid() == 0 {
+		assert.NoError(t, err, "root passes the privilege check")
+		return
+	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "root")
+	assert.Contains(t, err.Error(), "CAP_NET_ADMIN")
+}
+
+func TestReadCAPEMFound(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("PEMDATA"), 0o644))
+
+	cfg := config.Default()
+	cfg.CADir = dir
+	assert.Equal(t, []byte("PEMDATA"), readCAPEM(cfg))
+}
+
+func TestReadCAPEMMissing(t *testing.T) {
+	cfg := config.Default()
+	cfg.CADir = t.TempDir()
+	assert.Nil(t, readCAPEM(cfg), "missing cert must yield nil (API returns 404)")
+}
+
+func TestWireOutputsJSONAndNDJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, format := range []string{"json", "ndjson"} {
+		cfg := config.Default()
+		cfg.CADir = t.TempDir()
+		cfg.OutputDir = dir
+		cfg.OutputFormat = format
+
+		s, err := proxy.NewServer(cfg)
+		require.NoError(t, err)
+
+		require.NotPanics(t, func() { wireOutputs(s, cfg) }, "wireOutputs %s", format)
+	}
 }

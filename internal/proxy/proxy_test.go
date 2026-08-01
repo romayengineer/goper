@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -442,4 +443,33 @@ func TestShouldCaptureExcludeWinsOverInclude(t *testing.T) {
 
 	reqOK := httptest.NewRequest(http.MethodGet, "http://example.com/api", nil)
 	assert.True(t, s.shouldCapture(reqOK))
+}
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+func (failingReadCloser) Close() error             { return nil }
+
+// TestHandleResponseReadBodyErrorSkipsCapture covers the error path in the
+// response pipeline: if the response body cannot be read, the response must
+// still pass through to the client untouched, but nothing is captured.
+func TestHandleResponseReadBodyErrorSkipsCapture(t *testing.T) {
+	cfg := testConfig(t)
+	s := newTestServer(t, cfg)
+	store := &mockStore{}
+	s.store = store
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api", nil)
+	reqCtx := &goproxy.ProxyCtx{}
+	s.handleRequest(req, reqCtx)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       failingReadCloser{},
+	}
+
+	got := s.handleResponse(resp, &goproxy.ProxyCtx{UserData: reqCtx.UserData})
+	assert.Same(t, resp, got, "response must pass through even when the body cannot be read")
+	assert.Empty(t, store.pushed, "unreadable body must not be captured")
 }

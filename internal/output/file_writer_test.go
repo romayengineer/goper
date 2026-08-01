@@ -276,6 +276,16 @@ func TestNDJSONBodyWriterOpenError(t *testing.T) {
 	assert.Contains(t, err.Error(), "too many open files")
 }
 
+func TestNDJSONBodyWriterMkdirError(t *testing.T) {
+	fs := newFakeFS()
+	fs.mkdirErr = errors.New("mkdir failed")
+	w := newNDJSONBodyWriter("out", fs)
+
+	err := w.WriteEntry(jsonEntry("example.com", "a", `{"ok":true}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mkdir failed")
+}
+
 func TestNDJSONBodyWriterConcurrent(t *testing.T) {
 	fs := newFakeFS()
 	w := newNDJSONBodyWriter("out", fs)

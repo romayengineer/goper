@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -449,6 +450,39 @@ func TestWriteJSON(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+}
+
+type failingSSEWriter struct {
+	*httptest.ResponseRecorder
+}
+
+func (failingSSEWriter) Flush() {}
+
+func (failingSSEWriter) Write(p []byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+// TestStreamRequestsStopsOnWriteError covers the SSE error path: when the
+// client connection can no longer accept writes, the handler must stop
+// instead of looping forever.
+func TestStreamRequestsStopsOnWriteError(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("a")}}
+	h := newHandler(store, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/stream", nil)
+	rec := &failingSSEWriter{httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.StreamRequests(rec, req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream handler did not stop when writes failed")
+	}
 }
 
 // ---- tests below exercise the API against the real RingBuffer ----
