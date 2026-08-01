@@ -71,6 +71,23 @@ func TestServerCORS(t *testing.T) {
 	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
 }
 
+func TestServerCORSPreflightWithHeaders(t *testing.T) {
+	server := NewServer(0, &mockStore{}, nil)
+	s := server.(*Server)
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/requests", nil)
+	req.Header.Set("Access-Control-Request-Method", "DELETE")
+	req.Header.Set("Access-Control-Request-Headers", "Content-Type, X-Custom")
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
+	assert.Contains(t, rec.Header().Get("Access-Control-Allow-Methods"), "DELETE")
+	assert.Equal(t, "Content-Type", rec.Header().Get("Access-Control-Allow-Headers"),
+		"middleware advertises the headers it permits")
+}
+
 func TestServerImplementsRunnable(t *testing.T) {
 	var _ Runnable = NewServer(0, &mockStore{}, nil)
 }

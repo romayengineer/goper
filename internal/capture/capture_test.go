@@ -156,3 +156,59 @@ func TestDefaultRecorderResponseBodyLimit(t *testing.T) {
 func strPtr(s string) *string {
 	return &s
 }
+
+func TestIsJSONContentTypeVariants(t *testing.T) {
+	for _, ct := range []string{
+		"application/json",
+		"application/json; charset=utf-8",
+		"application/vnd.api+json",
+		"application/problem+json",
+		"APPLICATION/JSON",
+		"application/vnd.example.v1+json",
+	} {
+		assert.True(t, IsJSONContentType(ct), "expected %q to be JSON", ct)
+	}
+	for _, ct := range []string{"text/html", "text/plain", "", "application/xml", "application/octet-stream"} {
+		assert.False(t, IsJSONContentType(ct), "expected %q NOT to be JSON", ct)
+	}
+}
+
+func TestNewEntryIDFormatAndUniqueness(t *testing.T) {
+	seen := map[EntryID]bool{}
+	for i := 0; i < 100; i++ {
+		id := NewEntryID()
+		require.NotContains(t, seen, id, "entry IDs must be unique")
+		seen[id] = true
+		assert.Regexp(t, `^\d{14}-\d+$`, string(id), "expected YYYYMMDDHHMMSS-<counter> format")
+	}
+}
+
+func TestHeadersToMapMultiValueAndRedaction(t *testing.T) {
+	// Map literal on purpose: Set/Add canonicalize keys, but a literal keeps
+	// lowercase/mixed-case keys so the case-insensitive redaction is tested
+	// directly rather than relying on http.Header canonicalization.
+	h := http.Header{
+		"X-Multi":            {"one", "two"},
+		"Authorization":      {"Bearer secret"},
+		"cookie":             {"session=abc"},
+		"CoOkIe":             {"mixed=case"},
+		"Proxy-Authorization": {"Basic x"},
+		"Set-Cookie":         {"a=b"},
+	}
+
+	m := headersToMap(h)
+
+	assert.Equal(t, "one, two", m["X-Multi"], "multi-value headers should be joined")
+	assert.Equal(t, "***REDACTED***", m["Authorization"])
+	assert.Equal(t, "***REDACTED***", m["cookie"], "redaction must be case-insensitive")
+	assert.Equal(t, "***REDACTED***", m["CoOkIe"], "redaction must be case-insensitive")
+	assert.Equal(t, "***REDACTED***", m["Proxy-Authorization"])
+	assert.Equal(t, "***REDACTED***", m["Set-Cookie"])
+}
+
+func TestCaptureResponseEmptyBody(t *testing.T) {
+	header := http.Header{"Content-Type": []string{"application/json"}}
+	cr := CaptureResponse(200, header, nil, time.Now())
+	assert.Nil(t, cr.ResponseBody)
+	assert.Equal(t, 200, cr.StatusCode)
+}

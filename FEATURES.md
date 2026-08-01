@@ -31,6 +31,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 - [x] Response body cap of 1MB (larger bodies skipped)
 - [x] Configurable body size limits: `--request-body-limit` / `--response-body-limit` (bytes; 0 = unlimited; response defaults to 1 MiB)
 - [x] Binary/non-printable body detection (skipped unless JSON content type)
+- [x] JSON content-type detection per RFC 6839 (`+json` suffix, e.g. `application/vnd.api+json`, `application/problem+json`, vendor types) plus `application/json`, `text/json`, `application/x-ndjson`; parameters (`; charset=...`) ignored
 - [x] Request body restored after read so proxying still works
 - [x] URL filtering: `--capture-include` / `--capture-exclude` regexes against the full URL; filtered traffic is proxied but neither stored nor written to outputs
 - [x] Entry IDs: `YYYYMMDDHHMMSS-<counter>` format, unique, auto-assigned on push

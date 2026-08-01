@@ -1,7 +1,8 @@
+.DS_Store
+*.out
+*.pem
 /goper
 /tmp/
-*.pem
-.DS_Store
-captures/
 browser/node_modules/
 browser/package-lock.json
+captures/

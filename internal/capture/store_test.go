@@ -317,3 +317,122 @@ func TestStatsStaysConsistentUnderConcurrency(t *testing.T) {
 	assert.GreaterOrEqual(t, stats.Evictions, int64(150))
 	assert.GreaterOrEqual(t, stats.BytesCaptured, int64(0))
 }
+
+func TestListReturnsOldestFirst(t *testing.T) {
+	rb := NewRingBuffer(10)
+	for _, id := range []string{"a", "b", "c"} {
+		rb.Push(newTestEntry(id))
+	}
+
+	got := rb.List(ListOpts{})
+	require.Len(t, got, 3)
+	assert.Equal(t, EntryID("a"), got[0].ID)
+	assert.Equal(t, EntryID("b"), got[1].ID)
+	assert.Equal(t, EntryID("c"), got[2].ID)
+}
+
+func TestListOrderPreservedAcrossRingWrap(t *testing.T) {
+	rb := NewRingBuffer(3)
+	for _, id := range []string{"a", "b", "c", "d", "e"} { // a and b evicted
+		rb.Push(newTestEntry(id))
+	}
+
+	got := rb.List(ListOpts{})
+	require.Len(t, got, 3)
+	assert.Equal(t, EntryID("c"), got[0].ID, "order must be oldest→newest even after wrap-around")
+	assert.Equal(t, EntryID("d"), got[1].ID)
+	assert.Equal(t, EntryID("e"), got[2].ID)
+}
+
+func TestListOffsetBeyondRange(t *testing.T) {
+	rb := NewRingBuffer(10)
+	rb.Push(newTestEntry("a"))
+
+	assert.Empty(t, rb.List(ListOpts{Offset: 5}), "offset past the end must yield nothing")
+}
+
+func TestListCombinedFilters(t *testing.T) {
+	rb := NewRingBuffer(10)
+	e1 := newTestEntry("a") // GET 200
+	e2 := newTestEntry("b")
+	e2.Method = "POST"
+	e2.StatusCode = 201
+	e3 := newTestEntry("c")
+	e3.Method = "POST"
+	e3.StatusCode = 500
+	rb.Push(e1)
+	rb.Push(e2)
+	rb.Push(e3)
+
+	got := rb.List(ListOpts{Method: "POST"})
+	require.Len(t, got, 2)
+
+	got = rb.List(ListOpts{Method: "POST", Status: 500})
+	require.Len(t, got, 1)
+	assert.Equal(t, EntryID("c"), got[0].ID)
+
+	got = rb.List(ListOpts{Method: "DELETE"})
+	assert.Empty(t, got)
+}
+
+func TestGetAfterClear(t *testing.T) {
+	rb := NewRingBuffer(10)
+	rb.Push(newTestEntry("a"))
+	rb.Clear()
+
+	assert.Nil(t, rb.Get(EntryID("a")))
+	assert.Zero(t, rb.Len())
+}
+
+func TestPushPreservesCallerTimestamp(t *testing.T) {
+	rb := NewRingBuffer(10)
+	when := time.Now().Add(-time.Hour)
+	e := newTestEntry("a")
+	e.Timestamp = when
+
+	rb.Push(e)
+
+	assert.Equal(t, when, rb.Get(EntryID("a")).Timestamp,
+		"Push must not clobber a caller-set timestamp (only stamps zero values)")
+}
+
+func TestPushStampsZeroTimestamp(t *testing.T) {
+	rb := NewRingBuffer(10)
+	rb.Push(newTestEntry("a"))
+	assert.False(t, rb.Get(EntryID("a")).Timestamp.IsZero(), "entries without a timestamp get one on push")
+}
+
+func TestGetEvictedReturnsNil(t *testing.T) {
+	rb := NewRingBuffer(2)
+	rb.Push(newTestEntry("a"))
+	rb.Push(newTestEntry("b"))
+	rb.Push(newTestEntry("c")) // evicts "a"
+
+	assert.Nil(t, rb.Get(EntryID("a")), "evicted entry must be gone from the index")
+	assert.NotNil(t, rb.Get(EntryID("b")))
+	assert.NotNil(t, rb.Get(EntryID("c")))
+}
+
+func TestSubscribersSurviveClear(t *testing.T) {
+	rb := NewRingBuffer(10)
+	ch := rb.Subscribe()
+	defer rb.Unsubscribe(ch)
+
+	rb.Push(newTestEntry("a"))
+	select {
+	case e := <-ch:
+		assert.Equal(t, EntryID("a"), e.ID)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for pre-clear event")
+	}
+
+	rb.Clear()
+	rb.Push(newTestEntry("b"))
+
+	select {
+	case e := <-ch:
+		assert.Equal(t, EntryID("b"), e.ID, "subscribers should keep receiving events after Clear")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for post-clear event")
+	}
+}

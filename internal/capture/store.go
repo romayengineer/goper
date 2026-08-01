@@ -61,7 +61,9 @@ func (rb *RingBuffer) Push(entry *CapturedEntry) {
 	if entry.ID == "" {
 		entry.ID = NewEntryID()
 	}
-	entry.Timestamp = time.Now()
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now()
+	}
 
 	if rb.count == rb.capacity {
 		delete(rb.idIndex, rb.buffer[rb.head].ID)
@@ -142,8 +144,12 @@ func (rb *RingBuffer) List(opts ListOpts) []*CapturedEntry {
 		result = append(result, entry)
 	}
 
-	if opts.Offset > 0 && opts.Offset < len(result) {
-		result = result[opts.Offset:]
+	if opts.Offset > 0 {
+		if opts.Offset >= len(result) {
+			result = nil // offset past the end: empty page, not the whole list
+		} else {
+			result = result[opts.Offset:]
+		}
 	}
 	if opts.Limit > 0 && opts.Limit < len(result) {
 		result = result[:opts.Limit]

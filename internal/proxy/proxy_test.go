@@ -361,3 +361,85 @@ var errOutput = &outputError{}
 type outputError struct{}
 
 func (*outputError) Error() string { return "output error" }
+
+func TestHandleResponseNoUserData(t *testing.T) {
+	cfg := testConfig(t)
+	s := newTestServer(t, cfg)
+	store := &mockStore{}
+	s.store = store
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader("x")),
+	}
+	got := s.handleResponse(resp, &goproxy.ProxyCtx{})
+	assert.Same(t, resp, got, "response must pass through when capture was skipped")
+	assert.Empty(t, store.pushed)
+}
+
+func TestReadBodyNilBody(t *testing.T) {
+	b, err := readBody(&http.Response{Body: nil})
+	assert.NoError(t, err)
+	assert.Empty(t, b)
+}
+
+func TestReadBodyEmptyBody(t *testing.T) {
+	b, err := readBody(&http.Response{Body: io.NopCloser(strings.NewReader(""))})
+	assert.NoError(t, err)
+	assert.Empty(t, b)
+}
+
+func TestHandleResponseAppliesResponseBodyLimit(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.responseBodyLimit = 5
+	s := newTestServer(t, cfg)
+	store := &mockStore{}
+	s.store = store
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api", nil)
+	reqCtx := &goproxy.ProxyCtx{}
+	s.handleRequest(req, reqCtx)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"big":true}`)), // 12 bytes > 5
+	}
+	s.handleResponse(resp, &goproxy.ProxyCtx{UserData: reqCtx.UserData})
+
+	require.Len(t, store.pushed, 1)
+	assert.Nil(t, store.pushed[0].ResponseBody, "body over the limit must not be stored")
+	assert.Equal(t, http.StatusOK, store.pushed[0].StatusCode, "the entry itself is still captured")
+}
+
+func TestHandleRequestAppliesRequestBodyLimit(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.requestBodyLimit = 4
+	s := newTestServer(t, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/api", strings.NewReader("a long body"))
+	ctx := &goproxy.ProxyCtx{}
+	s.handleRequest(req, ctx)
+
+	data, ok := ctx.UserData.(captureCtx)
+	require.True(t, ok)
+	assert.Nil(t, data.entry.RequestBody, "request body over the limit must not be stored")
+
+	restored, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "a long body", string(restored), "body must still be restored for proxying")
+}
+
+func TestShouldCaptureExcludeWinsOverInclude(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.captureInclude = `example\.com`
+	cfg.captureExclude = `ads`
+	s := newTestServer(t, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ads/pixel", nil)
+	assert.False(t, s.shouldCapture(req), "exclude must win over include on overlap")
+
+	reqOK := httptest.NewRequest(http.MethodGet, "http://example.com/api", nil)
+	assert.True(t, s.shouldCapture(reqOK))
+}

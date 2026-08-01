@@ -116,11 +116,22 @@ func CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start
 	return cr
 }
 
+// IsJSONContentType reports whether a Content-Type value denotes JSON,
+// following RFC 6839: any media type with a "+json" structured syntax suffix
+// is JSON, plus the common exact types (application/json, text/json) and
+// newline-delimited JSON (application/x-ndjson). Parameters such as
+// "charset=utf-8" are ignored.
 func IsJSONContentType(contentType string) bool {
 	ct := strings.ToLower(contentType)
-	return strings.Contains(ct, "application/json") ||
-		strings.Contains(ct, "application/vnd.api+json") ||
-		strings.Contains(ct, "application/problem+json")
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = ct[:i]
+	}
+	ct = strings.TrimSpace(ct)
+
+	return ct == "application/json" ||
+		ct == "text/json" ||
+		strings.HasSuffix(ct, "+json") ||
+		strings.Contains(ct, "ndjson")
 }
 
 func isPrintable(s string) bool {
