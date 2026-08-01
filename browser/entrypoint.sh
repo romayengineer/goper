@@ -73,6 +73,12 @@ resolve_display() {
   return 1
 }
 resolve_display || exit 1
+# Persist the resolved display so tools exec'd into the container (e.g. the
+# e2e window assertion) see the same display as Chrome. The container's env
+# DISPLAY is the raw compose value, which may be a Mac-only launchd path that
+# does not exist inside the Docker VM.
+echo "$DISPLAY" > /tmp/goper-display
+chmod 0644 /tmp/goper-display
 echo "[goper-chrome] final DISPLAY=$DISPLAY"
 
 # Transparent mode: no --proxy-server flag. goper's iptables rules redirect

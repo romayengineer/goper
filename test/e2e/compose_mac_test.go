@@ -126,8 +126,13 @@ func TestComposeChromeWorkflowMacWindow(t *testing.T) {
 	}, "chrome CDP endpoint to become reachable")
 
 	// 4. WINDOW ASSERTION: a Chromium window must exist on the macOS display.
+	// The container env DISPLAY is the raw compose value, which on macOS may be
+	// a launchd socket path that only exists on the host. The entrypoint
+	// resolves a working display and persists it to /tmp/goper-display; prefer
+	// that, falling back to the container's DISPLAY.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	out, err = composeMacExec(ctx, root, "chrome", "xwininfo", "-root", "-children")
+	out, err = composeMacExec(ctx, root, "chrome", "sh", "-c",
+		`DISPLAY=$(cat /tmp/goper-display 2>/dev/null || printf %s "$DISPLAY") xwininfo -root -children`)
 	cancel()
 	require.NoError(t, err, "xwininfo should query the macOS display from the container")
 	assert.Contains(t, out, "Chromium", "expected a Chromium window on the X display")
