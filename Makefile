@@ -46,13 +46,18 @@ test-e2e-mac:
 test-e2e-linux:
 	go test -tags=e2e ./test/e2e -run TestComposeChromeWorkflowLinuxWindow -v -count=1 -timeout 20m
 
-# one-time macOS setup for the Chrome window (XQuartz)
+# one-time macOS setup for the Chrome window (XQuartz: TCP :6000 + open access)
 setup-mac:
-	@echo "One-time macOS setup for the Chrome window:"
-	@echo "  brew install --cask xquartz"
-	@echo "  defaults write org.xquartz.X11 nolisten_tcp -bool false"
-	@echo "  open -a XQuartz"
-	@echo "  xhost +"
+	@echo "Enabling XQuartz TCP listening for Docker (nolisten_tcp=false)..."
+	defaults write org.xquartz.X11 nolisten_tcp -bool false
+	@echo "Restarting XQuartz..."
+	osascript -e 'quit app "XQuartz"' || true
+	sleep 2
+	open -a XQuartz
+	sleep 3
+	@echo "Allowing X connections from the Docker VM..."
+	DISPLAY=:0 xhost +
+	@echo "Done. Run 'make up' — Chrome will open via XQuartz."
 
 # per-session Linux setup: allow the container to connect to the X display
 setup-linux:

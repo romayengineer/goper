@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 set -e
 
 CHROME_USER=pwuser
@@ -41,6 +41,39 @@ if [ ! -f "$DEFAULT_DIR/Preferences" ]; then
   printf '{"translate":{"enabled":false},"profile":{"default_content_setting_values":{"geolocation":2}}}\n' > "$DEFAULT_DIR/Preferences"
   chown "$CHROME_USER":"$CHROME_USER" "$DEFAULT_DIR/Preferences"
 fi
+
+# --- Resolve a usable X display -------------------------------------------
+# Docker Desktop for macOS runs containers in a Linux VM where the Mac host's
+# X11 unix socket does not exist; the only way to reach XQuartz is TCP via the
+# host gateway (host.docker.internal:0), which requires XQuartz to listen on
+# :6000 (nolisten_tcp=false) and accept the connection (xhost +). On native
+# Linux the mounted /tmp/.X11-unix socket works as-is. The CI/integration
+# overlay (in-container Xvfb :99) is also covered.
+resolve_display() {
+  # 1. The provided DISPLAY already answers? Keep it (Linux desktop, Xvfb overlay).
+  if [ -n "${DISPLAY:-}" ] && timeout 5 xdpyinfo >/dev/null 2>&1; then
+    return 0
+  fi
+  # 2. A local unix socket is visible (native Linux with the socket mount)?
+  for sock in /tmp/.X11-unix/X*; do
+    [ -e "$sock" ] || continue
+    export DISPLAY=":${sock##*X}"
+    if timeout 5 xdpyinfo >/dev/null 2>&1; then
+      echo "[goper-chrome] DISPLAY=$DISPLAY (local unix socket)"
+      return 0
+    fi
+  done
+  # 3. Docker Desktop / WSL2: X over TCP via the host gateway.
+  export DISPLAY=host.docker.internal:0
+  if timeout 5 xdpyinfo >/dev/null 2>&1; then
+    echo "[goper-chrome] DISPLAY=$DISPLAY (TCP via host gateway)"
+    return 0
+  fi
+  echo "[goper-chrome] FATAL: no usable X display. On macOS run: 'make setup-mac' (or: defaults write org.xquartz.X11 nolisten_tcp -bool false; open -a XQuartz; xhost +). On Linux: xhost +local:" >&2
+  return 1
+}
+resolve_display || exit 1
+echo "[goper-chrome] final DISPLAY=$DISPLAY"
 
 # Transparent mode: no --proxy-server flag. goper's iptables rules redirect
 # this process's traffic to the proxy. Chrome runs as a non-root user so the

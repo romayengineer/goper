@@ -80,7 +80,8 @@ Tracking document for implemented features (checked) and new feature ideas (open
 
 - [x] Multi-stage `Dockerfile` (alpine runtime, static binary, runs as root for iptables management)
 - [x] `docker-compose.yml` — goper (`cap_add: NET_ADMIN`, `--transparent`) + windowed Chrome sharing goper's network namespace (`network_mode: service:goper`), shared CA volume, captures bind-mount
-- [x] Cross-platform DISPLAY: uses `${DISPLAY}` on Linux (unix socket via `/tmp/.X11-unix`, `xhost +local:` prerequisite) and falls back to XQuartz TCP (`host.docker.internal:0`) on macOS
+- [x] Cross-platform DISPLAY: browser entrypoint resolves a usable X display at container start (keeps a working `DISPLAY`; falls back to a local unix socket, then XQuartz TCP via `host.docker.internal:0` on macOS) — works with plain `docker compose up`, not just `make up`
+- [x] `make setup-mac` executes the XQuartz config (nolisten_tcp=false, restart, `xhost +`) instead of just printing instructions
 - [x] Transparent interception enabled in the compose stack: iptables REDIRECT of ports 80/443, zero proxy config in the browser
 - [x] Chrome runs as a non-root user (`pwuser`) so the proxy's uid-0 owner-skip rule does not exempt its traffic
 - [x] Chrome runs with its sandbox enabled (no `--no-sandbox`); `seccomp:unconfined` on the chrome service lets it create user namespaces under Docker's default seccomp
