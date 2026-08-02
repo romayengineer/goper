@@ -77,34 +77,7 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 	keyPath := filepath.Join(dir, "ca-key.pem")
 
 	if _, err := os.Stat(certPath); err == nil {
-		certPEM, err := os.ReadFile(certPath) // #nosec G304 -- path derives from the configured CA dir
-		if err != nil {
-			return nil, fmt.Errorf("read CA cert: %w", err)
-		}
-		keyPEM, err := os.ReadFile(keyPath) // #nosec G304 -- path derives from the configured CA dir
-		if err != nil {
-			return nil, fmt.Errorf("read CA key: %w", err)
-		}
-
-		tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-		if err != nil {
-			return nil, fmt.Errorf("parse CA key pair: %w", err)
-		}
-
-		cert, err := x509.ParseCertificate(tlsCert.Certificate[0])
-		if err != nil {
-			return nil, fmt.Errorf("parse CA cert: %w", err)
-		}
-
-		pool := x509.NewCertPool()
-		pool.AddCert(cert)
-
-		return &CA{
-			Cert:     cert,
-			Key:      tlsCert.PrivateKey,
-			TLS:      tlsCert,
-			certPool: pool,
-		}, nil
+		return loadCA(certPath, keyPath)
 	}
 
 	ca, err := GenerateCA()
@@ -137,6 +110,38 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 	}
 
 	return ca, nil
+}
+
+// loadCA reads and parses a previously persisted CA key pair from disk.
+func loadCA(certPath, keyPath string) (*CA, error) {
+	certPEM, err := os.ReadFile(certPath) // #nosec G304 -- path derives from the configured CA dir
+	if err != nil {
+		return nil, fmt.Errorf("read CA cert: %w", err)
+	}
+	keyPEM, err := os.ReadFile(keyPath) // #nosec G304 -- path derives from the configured CA dir
+	if err != nil {
+		return nil, fmt.Errorf("read CA key: %w", err)
+	}
+
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA key pair: %w", err)
+	}
+
+	cert, err := x509.ParseCertificate(tlsCert.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("parse CA cert: %w", err)
+	}
+
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+
+	return &CA{
+		Cert:     cert,
+		Key:      tlsCert.PrivateKey,
+		TLS:      tlsCert,
+		certPool: pool,
+	}, nil
 }
 
 type CAProvider interface {

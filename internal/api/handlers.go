@@ -117,18 +117,11 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	backfill := defaultBackfill
-	if v := r.URL.Query().Get("backfill"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			backfill = n
-		}
-	}
-
 	// Backfill: send the most recent entries first so a client that connects
 	// mid-stream catches up. Entries captured between this snapshot and the
 	// Subscribe below may be sent twice (snapshot then live) — harmless for
 	// idempotent consumers; avoiding it would require a per-client cursor.
-	if !h.backfillSSE(w, flusher, backfill) {
+	if !h.backfillSSE(w, flusher, backfillCount(r)) {
 		return
 	}
 
@@ -175,6 +168,18 @@ func (h *Handler) backfillSSE(w http.ResponseWriter, flusher http.Flusher, backf
 		}
 	}
 	return true
+}
+
+// backfillCount reads the ?backfill=N parameter (defaultBackfill when absent
+// or invalid; 0 disables backfill).
+func backfillCount(r *http.Request) int {
+	backfill := defaultBackfill
+	if v := r.URL.Query().Get("backfill"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			backfill = n
+		}
+	}
+	return backfill
 }
 
 // writeSSEPing writes a keepalive comment and flushes; returns false on write
