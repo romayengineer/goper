@@ -172,16 +172,34 @@ func (s *Server) handleTLSTransparent(br *bufio.Reader, conn net.Conn) {
 		return
 	}
 
-	orig, _ := s.resolver.Resolve(conn)
-	fallbackHost := ""
-	if orig != nil {
-		fallbackHost = orig.IP.String()
-	}
-	if hello.ServerName != "" {
-		fallbackHost = hello.ServerName
+	fallbackHost := s.fallbackHost(conn, hello.ServerName)
+
+	tlsConn := tls.Server(&bufferedConn{Conn: conn, r: br}, s.tlsConfigFor(fallbackHost))
+	if err := tlsConn.Handshake(); err != nil {
+		slog.Debug("transparent: TLS handshake failed", "error", err)
+		return
 	}
 
-	tlsCfg := &tls.Config{
+	s.serveInner(tlsConn, "https", fallbackHost)
+}
+
+// fallbackHost resolves the original destination for a transparent connection,
+// preferring the SNI hostname when the client supplied one.
+func (s *Server) fallbackHost(conn net.Conn, serverName string) string {
+	if serverName != "" {
+		return serverName
+	}
+	orig, _ := s.resolver.Resolve(conn)
+	if orig != nil {
+		return orig.IP.String()
+	}
+	return ""
+}
+
+// tlsConfigFor builds the MITM TLS config for a transparent connection,
+// falling back to the original destination when the client omits SNI.
+func (s *Server) tlsConfigFor(fallbackHost string) *tls.Config {
+	return &tls.Config{
 		GetCertificate: func(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			host := clientHello.ServerName
 			if host == "" {
@@ -194,14 +212,6 @@ func (s *Server) handleTLSTransparent(br *bufio.Reader, conn net.Conn) {
 		NextProtos: []string{"http/1.1"},
 		MinVersion: tls.VersionTLS12,
 	}
-
-	tlsConn := tls.Server(&bufferedConn{Conn: conn, r: br}, tlsCfg)
-	if err := tlsConn.Handshake(); err != nil {
-		slog.Debug("transparent: TLS handshake failed", "error", err)
-		return
-	}
-
-	s.serveInner(tlsConn, "https", fallbackHost)
 }
 
 // serveInner runs the goproxy handler over a single inner connection,

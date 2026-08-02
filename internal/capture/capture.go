@@ -162,11 +162,18 @@ func IsJSONContentType(contentType string) bool {
 
 func isPrintable(s string) bool {
 	for _, r := range s {
-		if r < 32 && r != '\n' && r != '\r' && r != '\t' {
+		if !isPrintableChar(r) {
 			return false
 		}
 	}
 	return true
+}
+
+// isPrintableChar reports whether r is printable: at or above the printable
+// range, or a control character we tolerate in captured bodies (newline,
+// carriage return, tab).
+func isPrintableChar(r rune) bool {
+	return r >= 32 || r == '\n' || r == '\r' || r == '\t'
 }
 
 func CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry {

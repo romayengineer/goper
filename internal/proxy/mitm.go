@@ -107,13 +107,19 @@ func persistCA(ca *CA, dir, certPath, keyPath string) error {
 		return err
 	}
 
+	return writeCAFiles(certPath, keyPath, certPEM, keyPEM)
+}
+
+// writeCAFiles persists the CA certificate and key with appropriate
+// permissions: the cert is public so it can be served via the API and
+// installed in browsers, while the key stays private to the process owner.
+func writeCAFiles(certPath, keyPath string, certPEM, keyPEM []byte) error {
 	if err := os.WriteFile(certPath, certPEM, 0644); err != nil { // #nosec G306 -- the CA certificate is public: it must be readable so it can be served via the API and installed in browsers
 		return fmt.Errorf("write CA cert: %w", err)
 	}
 	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
 		return fmt.Errorf("write CA key: %w", err)
 	}
-
 	return nil
 }
 

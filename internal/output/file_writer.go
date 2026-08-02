@@ -200,7 +200,11 @@ func sanitizeHost(h string) string {
 }
 
 func isSafeRune(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '-'
+	return isAlnum(r) || r == '.' || r == '-'
+}
+
+func isAlnum(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
 }
 
 // validSegmentName rejects empty or dot-segment names, which would escape the

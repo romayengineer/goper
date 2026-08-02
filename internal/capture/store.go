@@ -57,19 +57,10 @@ func NewRingBuffer(capacity int) *RingBuffer {
 func (rb *RingBuffer) Push(entry *CapturedEntry) {
 	rb.mu.Lock()
 
-	if entry.ID == "" {
-		entry.ID = NewEntryID()
-	}
-	if entry.Timestamp.IsZero() {
-		entry.Timestamp = time.Now()
-	}
+	finalizeEntry(entry)
 
 	if rb.count == rb.capacity {
-		delete(rb.idIndex, rb.buffer[rb.head].ID)
-		rb.buffer[rb.head] = nil
-		rb.head = (rb.head + 1) % rb.capacity
-		rb.count--
-		rb.evictions++
+		rb.evictOldest()
 	}
 	rb.bytesCaptured += entryBytes(entry)
 
@@ -84,6 +75,31 @@ func (rb *RingBuffer) Push(entry *CapturedEntry) {
 	copy(subs, rb.subscribers)
 	rb.mu.Unlock()
 
+	notifySubscribers(subs, entry)
+}
+
+// finalizeEntry assigns a default ID and timestamp to an entry that lacks them.
+func finalizeEntry(entry *CapturedEntry) {
+	if entry.ID == "" {
+		entry.ID = NewEntryID()
+	}
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now()
+	}
+}
+
+// evictOldest drops the oldest entry when the ring is full.
+func (rb *RingBuffer) evictOldest() {
+	delete(rb.idIndex, rb.buffer[rb.head].ID)
+	rb.buffer[rb.head] = nil
+	rb.head = (rb.head + 1) % rb.capacity
+	rb.count--
+	rb.evictions++
+}
+
+// notifySubscribers delivers a copy of the entry to every subscriber without
+// blocking ingestion.
+func notifySubscribers(subs []chan *CapturedEntry, entry *CapturedEntry) {
 	entryCopy := *entry
 	for _, sub := range subs {
 		select {

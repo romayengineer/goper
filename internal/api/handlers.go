@@ -273,6 +273,20 @@ func copyReplayHeaders(req *http.Request, headers map[string]string) {
 	}
 }
 
+// buildReplayRequest reconstructs a captured request for replay.
+func buildReplayRequest(entry *capture.CapturedEntry) (*http.Request, error) {
+	var body io.Reader
+	if entry.RequestBody != nil {
+		body = strings.NewReader(*entry.RequestBody)
+	}
+	req, err := http.NewRequest(entry.Method, entry.URL, body) // #nosec G704 -- replay is an explicit feature: it resends a captured request to its stored URL
+	if err != nil {
+		return nil, err
+	}
+	copyReplayHeaders(req, entry.RequestHeaders)
+	return req, nil
+}
+
 // ReplayRequest re-sends a captured request to its original URL using the
 // stored method, headers and body, and returns the fresh response. Useful for
 // re-executing an API call after a fix, or for testing idempotent endpoints.
@@ -284,17 +298,11 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body io.Reader
-	if entry.RequestBody != nil {
-		body = strings.NewReader(*entry.RequestBody)
-	}
-
-	req, err := http.NewRequest(entry.Method, entry.URL, body) // #nosec G704 -- replay is an explicit feature: it resends a captured request to its stored URL
+	req, err := buildReplayRequest(entry)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	copyReplayHeaders(req, entry.RequestHeaders)
 
 	client := replayClient
 	start := time.Now()

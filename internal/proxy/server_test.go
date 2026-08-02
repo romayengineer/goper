@@ -143,17 +143,7 @@ func TestProxyRunWithListenerMITM(t *testing.T) {
 // buffered by capture. The entry is still recorded but carries no body.
 func TestProxyStreamsSSEWithoutStalling(t *testing.T) {
 	release := make(chan struct{})
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: hello\n\n")
-		w.(http.Flusher).Flush()
-		// Hold the stream open: the first event must arrive even though the
-		// stream never ends.
-		select {
-		case <-release:
-		case <-r.Context().Done():
-		}
-	}))
+	upstream := startSSEUpstream(release)
 	defer close(release)
 	defer upstream.Close()
 
@@ -167,6 +157,36 @@ func TestProxyStreamsSSEWithoutStalling(t *testing.T) {
 
 	// The first event must be delivered promptly; a 5s cap proves capture is
 	// not stalling the stream (buffering would block until the stream ends).
+	line := awaitFirstLine(t, resp)
+	assert.Contains(t, line, "data: hello", "first SSE event must reach the client")
+
+	entry := waitForEntry(t, s.Store())
+	require.NotNil(t, entry)
+	assert.Equal(t, http.StatusOK, entry.StatusCode)
+	assert.Equal(t, "text/event-stream", entry.ContentType)
+	assert.Nil(t, entry.ResponseBody, "streaming bodies are not captured")
+}
+
+// startSSEUpstream starts an HTTP server that emits one SSE event and holds
+// the stream open until release is closed or the client disconnects.
+func startSSEUpstream(release <-chan struct{}) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: hello\n\n")
+		w.(http.Flusher).Flush()
+		// Hold the stream open: the first event must arrive even though the
+		// stream never ends.
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+}
+
+// awaitFirstLine reads the first line from an SSE response body, failing the
+// test if nothing arrives within 5s.
+func awaitFirstLine(t *testing.T, resp *http.Response) string {
+	t.Helper()
 	done := make(chan string, 1)
 	go func() {
 		line, err := bufio.NewReader(resp.Body).ReadString('\n')
@@ -178,16 +198,11 @@ func TestProxyStreamsSSEWithoutStalling(t *testing.T) {
 	}()
 	select {
 	case line := <-done:
-		assert.Contains(t, line, "data: hello", "first SSE event must reach the client")
+		return line
 	case <-time.After(5 * time.Second):
 		t.Fatal("first SSE event not delivered within 5s: capture is buffering the stream")
+		return ""
 	}
-
-	entry := waitForEntry(t, s.Store())
-	require.NotNil(t, entry)
-	assert.Equal(t, http.StatusOK, entry.StatusCode)
-	assert.Equal(t, "text/event-stream", entry.ContentType)
-	assert.Nil(t, entry.ResponseBody, "streaming bodies are not captured")
 }
 
 // TestServerRunListenError verifies Run reports a bind failure instead of

@@ -209,18 +209,29 @@ func parseConfig(args []string) (*config.Config, error) {
 		return nil, err
 	}
 
+	applyDerivedSettings(cfg, logFormat)
+	cfg.CADir = expandHomeDir(cfg.CADir)
+
+	return cfg, nil
+}
+
+// applyDerivedSettings sets the verbose-derived log level and the requested
+// --log-format.
+func applyDerivedSettings(cfg *config.Config, logFormat string) {
 	if cfg.Verbose {
 		cfg.LogLevel = slog.LevelDebug
 	}
 	if logFormat == "json" {
 		cfg.LogFormat = "json"
 	}
+}
 
+// expandHomeDir replaces a leading ~ in a path with the user's home directory.
+func expandHomeDir(path string) string {
 	if home, err := os.UserHomeDir(); err == nil {
-		cfg.CADir = strings.Replace(cfg.CADir, "~", home, 1)
+		return strings.Replace(path, "~", home, 1)
 	}
-
-	return cfg, nil
+	return path
 }
 
 // validateConfig checks output format and capture regexes after flag parsing.

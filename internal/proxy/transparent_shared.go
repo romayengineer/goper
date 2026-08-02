@@ -35,6 +35,22 @@ type SNIPeeker interface {
 type DefaultSNIPeeker struct{}
 
 func (DefaultSNIPeeker) Peek(r *bufio.Reader) (*ClientHello, error) {
+	data, err := peekTLSRecord(r)
+	if err != nil {
+		return nil, err
+	}
+
+	hello := parseClientHello(data[5:])
+	if hello == nil {
+		// No SNI extension (or not a ClientHello we recognize): the caller
+		// falls back to the original destination, so return an empty hello.
+		return &ClientHello{}, nil
+	}
+	return hello, nil
+}
+
+// peekTLSRecord non-destructively reads a complete TLS handshake record.
+func peekTLSRecord(r *bufio.Reader) ([]byte, error) {
 	header, err := r.Peek(5)
 	if err != nil {
 		return nil, fmt.Errorf("peek TLS record header: %w", err)
@@ -48,19 +64,11 @@ func (DefaultSNIPeeker) Peek(r *bufio.Reader) (*ClientHello, error) {
 		return nil, fmt.Errorf("invalid TLS record length %d", recordLen)
 	}
 
-	total := 5 + recordLen
-	data, err := r.Peek(total)
+	data, err := r.Peek(5 + recordLen)
 	if err != nil {
 		return nil, fmt.Errorf("peek TLS record: %w", err)
 	}
-
-	hello := parseClientHello(data[5:total])
-	if hello == nil {
-		// No SNI extension (or not a ClientHello we recognize): the caller
-		// falls back to the original destination, so return an empty hello.
-		return &ClientHello{}, nil
-	}
-	return hello, nil
+	return data, nil
 }
 
 func parseClientHello(data []byte) *ClientHello {
@@ -77,6 +85,12 @@ func parseClientHello(data []byte) *ClientHello {
 		return nil
 	}
 
+	return helloFromSNI(data, offset, extensionsLen)
+}
+
+// helloFromSNI scans the extensions block for an SNI hostname, returning a
+// ClientHello carrying it, or nil when none is present.
+func helloFromSNI(data []byte, offset, extensionsLen int) *ClientHello {
 	end := offset + extensionsLen
 	if end > len(data) {
 		end = len(data)
@@ -150,7 +164,7 @@ func sniFromExtensions(data []byte, offset, end int) string {
 		extLen := int(data[offset+2])<<8 | int(data[offset+3])
 		offset += 4
 
-		if extType == 0 && extLen > 5 && offset+extLen <= end {
+		if isSNIExtension(extType, extLen, offset, end) {
 			if name := sniFromServerNameList(data, offset, end, extLen); name != "" {
 				return name
 			}
@@ -162,27 +176,44 @@ func sniFromExtensions(data []byte, offset, end int) string {
 	return ""
 }
 
+// isSNIExtension reports whether the extension at offset is an SNI
+// (server_name, type 0) extension whose ServerNameList fits within the block.
+func isSNIExtension(extType uint16, extLen, offset, end int) bool {
+	return extType == 0 && extLen > 5 && offset+extLen <= end
+}
+
 // sniFromServerNameList walks the ServerNameList inside an SNI extension
 // (starting at data[offset], bounded by end and the extension length) and
 // returns the first DNS hostname entry, or "" if none is present.
 func sniFromServerNameList(data []byte, offset, end, extLen int) string {
 	listLen := int(data[offset])<<8 | int(data[offset+1])
 	nameOffset := offset + 2
-	nameEnd := nameOffset + listLen
-	if nameEnd > offset+extLen {
-		nameEnd = offset + extLen
-	}
+	nameEnd := clampServerNameListEnd(nameOffset+listLen, offset, extLen)
 
 	for nameOffset+3 <= nameEnd {
 		nameType := data[nameOffset]
 		nameLen := int(data[nameOffset+1])<<8 | int(data[nameOffset+2])
 		nameOffset += 3
 
-		if nameType == 0 && nameLen > 0 && nameOffset+nameLen <= nameEnd {
+		if isDNSEntry(nameType, nameLen, nameOffset, nameEnd) {
 			return string(data[nameOffset : nameOffset+nameLen])
 		}
 		nameOffset += nameLen
 	}
 
 	return ""
+}
+
+// clampServerNameListEnd bounds the ServerNameList end to the extension length.
+func clampServerNameListEnd(nameEnd, extStart, extLen int) int {
+	if nameEnd > extStart+extLen {
+		return extStart + extLen
+	}
+	return nameEnd
+}
+
+// isDNSEntry reports whether a ServerNameList entry is a DNS name that fits
+// within the remaining list.
+func isDNSEntry(nameType byte, nameLen, nameOffset, nameEnd int) bool {
+	return nameType == 0 && nameLen > 0 && nameOffset+nameLen <= nameEnd
 }

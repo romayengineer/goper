@@ -59,19 +59,8 @@ func NewServer(cfg config.Provider) (Runnable, error) {
 		recorder: capture.NewDefaultRecorder(cfg.GetRequestBodyLimit(), cfg.GetResponseBodyLimit()),
 	}
 
-	if include := cfg.GetCaptureInclude(); include != "" {
-		re, err := regexp.Compile(include)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --capture-include regex %q: %w", include, err)
-		}
-		s.includeRE = re
-	}
-	if exclude := cfg.GetCaptureExclude(); exclude != "" {
-		re, err := regexp.Compile(exclude)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --capture-exclude regex %q: %w", exclude, err)
-		}
-		s.excludeRE = re
+	if err := configureCaptureRegexes(s, cfg); err != nil {
+		return nil, err
 	}
 
 	s.proxy.Verbose = cfg.IsVerbose()
@@ -85,6 +74,35 @@ func NewServer(cfg config.Provider) (Runnable, error) {
 	s.proxy.OnResponse().DoFunc(s.handleResponse)
 
 	return s, nil
+}
+
+// configureCaptureRegexes compiles the capture include/exclude filters from the
+// config onto the server.
+func configureCaptureRegexes(s *Server, cfg config.Provider) error {
+	include, err := compileCaptureRegex("--capture-include", cfg.GetCaptureInclude())
+	if err != nil {
+		return err
+	}
+	exclude, err := compileCaptureRegex("--capture-exclude", cfg.GetCaptureExclude())
+	if err != nil {
+		return err
+	}
+	s.includeRE = include
+	s.excludeRE = exclude
+	return nil
+}
+
+// compileCaptureRegex compiles an optional capture filter regex, returning nil
+// for an empty pattern.
+func compileCaptureRegex(name, pattern string) (*regexp.Regexp, error) {
+	if pattern == "" {
+		return nil, nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s regex %q: %w", name, pattern, err)
+	}
+	return re, nil
 }
 
 func (s *Server) AddOutput(w output.Writer) {
@@ -181,18 +199,22 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		s.captureStreaming(data, resp)
 		return resp
 	}
-	if truncated {
-		// The body exceeded the capture limit; the length of the streamed
-		// remainder is unknown, so fall back to chunked/close-delimited
-		// framing rather than a wrong Content-Length.
-		resp.ContentLength = -1
-	} else {
-		resp.ContentLength = int64(len(bodyBytes))
-	}
 
+	fixContentLength(resp, bodyBytes, truncated)
 	s.captureResponse(data, resp, bodyBytes)
 
 	return resp
+}
+
+// fixContentLength rewrites ContentLength after capture: a truncated body has
+// an unknown streamed remainder (chunked/close-delimited framing), a captured
+// body gets its exact captured length.
+func fixContentLength(resp *http.Response, bodyBytes []byte, truncated bool) {
+	if truncated {
+		resp.ContentLength = -1
+		return
+	}
+	resp.ContentLength = int64(len(bodyBytes))
 }
 
 // captureStreaming records a response whose body was left untouched because it
