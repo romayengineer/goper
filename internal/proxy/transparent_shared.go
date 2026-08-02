@@ -72,41 +72,10 @@ func parseClientHello(data []byte) *ClientHello {
 		return nil
 	}
 
-	offset := 4
-
-	if offset+2 > len(data) {
+	offset, extensionsLen, ok := skipClientHelloFixed(data, 4)
+	if !ok {
 		return nil
 	}
-	offset += 2
-
-	if offset+32 > len(data) {
-		return nil
-	}
-	offset += 32
-
-	if offset+1 > len(data) {
-		return nil
-	}
-	sessionIDLen := int(data[offset])
-	offset += 1 + sessionIDLen
-
-	if offset+2 > len(data) {
-		return nil
-	}
-	cipherSuiteLen := int(data[offset])<<8 | int(data[offset+1])
-	offset += 2 + cipherSuiteLen
-
-	if offset+1 > len(data) {
-		return nil
-	}
-	compressionLen := int(data[offset])
-	offset += 1 + compressionLen
-
-	if offset+2 > len(data) {
-		return nil
-	}
-	extensionsLen := int(data[offset])<<8 | int(data[offset+1])
-	offset += 2
 
 	end := offset + extensionsLen
 	if end > len(data) {
@@ -117,6 +86,47 @@ func parseClientHello(data []byte) *ClientHello {
 		return &ClientHello{ServerName: sni}
 	}
 	return nil
+}
+
+// skipClientHelloFixed walks the fixed ClientHello fields (version, random,
+// session id, cipher suites, compression) with bounds checks, returning the
+// offset of the extensions block and its length, or ok=false if the data is
+// truncated.
+func skipClientHelloFixed(data []byte, offset int) (extOffset, extLen int, ok bool) {
+	if offset+2 > len(data) {
+		return 0, 0, false
+	}
+	offset += 2
+
+	if offset+32 > len(data) {
+		return 0, 0, false
+	}
+	offset += 32
+
+	if offset+1 > len(data) {
+		return 0, 0, false
+	}
+	sessionIDLen := int(data[offset])
+	offset += 1 + sessionIDLen
+
+	if offset+2 > len(data) {
+		return 0, 0, false
+	}
+	cipherSuiteLen := int(data[offset])<<8 | int(data[offset+1])
+	offset += 2 + cipherSuiteLen
+
+	if offset+1 > len(data) {
+		return 0, 0, false
+	}
+	compressionLen := int(data[offset])
+	offset += 1 + compressionLen
+
+	if offset+2 > len(data) {
+		return 0, 0, false
+	}
+	extensionsLen := int(data[offset])<<8 | int(data[offset+1])
+
+	return offset + 2, extensionsLen, true
 }
 
 // sniFromExtensions walks the TLS extensions block (data[offset:end]) looking

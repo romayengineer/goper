@@ -55,15 +55,9 @@ func run(cfg *config.Config) int {
 	var iptMgr iptables.RuleManager = iptables.NewManager(cfg.ProxyPort(), nil)
 
 	if cfg.Transparent {
-		if err := checkTransparentPrivileges(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
+		if code := setupTransparent(iptMgr); code != 0 {
+			return code
 		}
-		if err := iptMgr.Setup(); err != nil {
-			slog.Error("setup iptables", "error", err)
-			return 1
-		}
-		slog.Info("transparent proxy rules installed")
 	}
 
 	caPEM := readCAPEM(cfg)
@@ -102,13 +96,33 @@ func run(cfg *config.Config) int {
 	slog.Info("shutting down", "signal", sig)
 
 	if cfg.Transparent {
-		if err := iptMgr.Teardown(); err != nil {
-			slog.Error("remove iptables rules", "error", err)
-		}
+		teardownTransparent(iptMgr)
 	}
 
 	slog.Info("stopped")
 	return 0
+}
+
+// setupTransparent verifies privileges and installs iptables rules for
+// transparent mode. Returns a non-zero exit code on failure.
+func setupTransparent(iptMgr iptables.RuleManager) int {
+	if err := checkTransparentPrivileges(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := iptMgr.Setup(); err != nil {
+		slog.Error("setup iptables", "error", err)
+		return 1
+	}
+	slog.Info("transparent proxy rules installed")
+	return 0
+}
+
+// teardownTransparent removes the iptables rules on shutdown.
+func teardownTransparent(iptMgr iptables.RuleManager) {
+	if err := iptMgr.Teardown(); err != nil {
+		slog.Error("remove iptables rules", "error", err)
+	}
 }
 
 // setupLogging installs the process-wide slog handler according to the
@@ -181,18 +195,8 @@ func parseConfig(args []string) (*config.Config, error) {
 		return nil, err
 	}
 
-	if cfg.OutputFormat != "json" && cfg.OutputFormat != "ndjson" {
-		return nil, fmt.Errorf("invalid --output-format: must be 'json' or 'ndjson'")
-	}
-	if cfg.CaptureInclude != "" {
-		if _, err := regexp.Compile(cfg.CaptureInclude); err != nil {
-			return nil, fmt.Errorf("invalid --capture-include regex: %w", err)
-		}
-	}
-	if cfg.CaptureExclude != "" {
-		if _, err := regexp.Compile(cfg.CaptureExclude); err != nil {
-			return nil, fmt.Errorf("invalid --capture-exclude regex: %w", err)
-		}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	if cfg.Verbose {
@@ -207,4 +211,22 @@ func parseConfig(args []string) (*config.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// validateConfig checks output format and capture regexes after flag parsing.
+func validateConfig(cfg *config.Config) error {
+	if cfg.OutputFormat != "json" && cfg.OutputFormat != "ndjson" {
+		return fmt.Errorf("invalid --output-format: must be 'json' or 'ndjson'")
+	}
+	if cfg.CaptureInclude != "" {
+		if _, err := regexp.Compile(cfg.CaptureInclude); err != nil {
+			return fmt.Errorf("invalid --capture-include regex: %w", err)
+		}
+	}
+	if cfg.CaptureExclude != "" {
+		if _, err := regexp.Compile(cfg.CaptureExclude); err != nil {
+			return fmt.Errorf("invalid --capture-exclude regex: %w", err)
+		}
+	}
+	return nil
 }
