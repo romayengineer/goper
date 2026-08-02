@@ -23,7 +23,7 @@ linters:
         # Sets the maximum allowed lines per file
         - name: file-length-limit
           arguments:
-            max: 400
+            max: 350
 
 formatters:
   default: none
