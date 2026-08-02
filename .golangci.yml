@@ -12,11 +12,18 @@ linters:
     - gocritic
     - gosec
     - prealloc
+    - revive
 
   settings:
     gocyclo:
       # min-complexity is the maximum allowed complexity.
       min-complexity: 3
+    revive:
+      rules:
+        # Sets the maximum allowed lines per file
+        - name: file-length-limit
+          arguments:
+            max: 500
 
 formatters:
   default: none
