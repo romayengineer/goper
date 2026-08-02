@@ -93,3 +93,49 @@ func TestStreamRequestsStopsOnWriteError(t *testing.T) {
 		t.Fatal("stream handler did not stop when writes failed")
 	}
 }
+
+func TestStreamRequestsBackfill(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("old1"), sampleEntry("old2")}}
+	h := newHandler(store, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/stream?backfill=2", nil).WithContext(ctx)
+	rec := &flushRecorder{httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.StreamRequests(rec, req)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-done
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `"id":"old1"`, "expected historical entry in backfill")
+	assert.Contains(t, body, `"id":"old2"`, "expected historical entry in backfill")
+}
+
+func TestStreamRequestsBackfillDisabled(t *testing.T) {
+	store := &mockStore{entries: []*capture.CapturedEntry{sampleEntry("old1")}}
+	h := newHandler(store, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/requests/stream?backfill=0", nil).WithContext(ctx)
+	rec := &flushRecorder{httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.StreamRequests(rec, req)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-done
+
+	assert.NotContains(t, rec.Body.String(), "old1", "backfill=0 must not send history")
+}
