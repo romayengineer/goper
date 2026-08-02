@@ -113,13 +113,8 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 	// mid-stream catches up. Entries captured between this snapshot and the
 	// Subscribe below may be sent twice (snapshot then live) — harmless for
 	// idempotent consumers; avoiding it would require a per-client cursor.
-	if backfill > 0 {
-		history := h.store.List(capture.ListOpts{Limit: backfill})
-		for _, entry := range history {
-			if !writeSSE(w, flusher, entry) {
-				return
-			}
-		}
+	if !h.backfillSSE(w, flusher, backfill) {
+		return
 	}
 
 	ch := h.store.Subscribe()
@@ -137,10 +132,9 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-ping.C:
-			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
+			if !writeSSEPing(w, flusher) {
 				return
 			}
-			flusher.Flush()
 		case entry, ok := <-ch:
 			if !ok {
 				return
@@ -150,6 +144,32 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// backfillSSE replays the N most recent entries to a newly connected SSE
+// client before it starts receiving live events. It returns false if the
+// connection was lost mid-backfill.
+func (h *Handler) backfillSSE(w http.ResponseWriter, flusher http.Flusher, backfill int) bool {
+	if backfill <= 0 {
+		return true
+	}
+	history := h.store.List(capture.ListOpts{Limit: backfill})
+	for _, entry := range history {
+		if !writeSSE(w, flusher, entry) {
+			return false
+		}
+	}
+	return true
+}
+
+// writeSSEPing writes a keepalive comment and flushes; returns false on write
+// failure (client disconnected).
+func writeSSEPing(w http.ResponseWriter, flusher http.Flusher) bool {
+	if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
+		return false
+	}
+	flusher.Flush()
+	return true
 }
 
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, entry *capture.CapturedEntry) bool {
