@@ -172,9 +172,14 @@ func wireOutputs(proxyServer proxy.Runnable, cfg *config.Config) {
 	slog.Info("JSON output enabled", "dir", cfg.OutputDir, "format", cfg.OutputFormat)
 }
 
-// setupOutputs wires the on-disk capture writer when an output directory is
-// configured.
+// setupOutputs wires the on-disk capture writer. JSON capture is enabled by
+// default (--output-dir defaults to "captures"); --no-capture disables it,
+// and an explicitly empty --output-dir also disables it.
 func setupOutputs(proxyServer proxy.Runnable, cfg *config.Config) {
+	if cfg.NoCapture {
+		slog.Info("JSON output disabled (--no-capture)")
+		return
+	}
 	if cfg.OutputDir != "" {
 		wireOutputs(proxyServer, cfg)
 	}
@@ -215,8 +220,9 @@ func parseConfig(args []string) (*config.Config, error) {
 	fs.BoolVar(&cfg.Verbose, "verbose", cfg.Verbose, "verbose logging (sets log level to debug)")
 	fs.IntVar(&cfg.BufferSize, "buffer", cfg.BufferSize, "ring buffer size")
 	fs.StringVar(&logFormat, "log-format", "text", "log format (text or json)")
-	fs.StringVar(&cfg.OutputDir, "output-dir", cfg.OutputDir, "directory to write JSON response bodies (empty = disabled)")
+	fs.StringVar(&cfg.OutputDir, "output-dir", cfg.OutputDir, "directory to write JSON response bodies (default: captures; empty disables)")
 	fs.StringVar(&cfg.OutputFormat, "output-format", cfg.OutputFormat, "output format (json or ndjson)")
+	fs.BoolVar(&cfg.NoCapture, "no-capture", cfg.NoCapture, "disable writing JSON captures to disk (keeps the live dashboard)")
 	fs.Int64Var(&cfg.RequestBodyLimit, "request-body-limit", cfg.RequestBodyLimit, "max request body bytes to capture (0 = unlimited)")
 	fs.Int64Var(&cfg.ResponseBodyLimit, "response-body-limit", cfg.ResponseBodyLimit, "max response body bytes to capture (0 = unlimited)")
 	fs.StringVar(&cfg.CaptureInclude, "capture-include", cfg.CaptureInclude, "only capture URLs matching this regex")

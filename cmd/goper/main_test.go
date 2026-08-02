@@ -26,6 +26,8 @@ func TestParseConfigDefaults(t *testing.T) {
 	assert.Equal(t, d.BufferSize, cfg.BufferSize)
 	assert.Equal(t, "text", cfg.LogFormat)
 	assert.Equal(t, d.ResponseBodyLimit, cfg.ResponseBodyLimit)
+	assert.Equal(t, "captures", cfg.OutputDir, "JSON capture to disk is on by default")
+	assert.False(t, cfg.NoCapture)
 	// The default CA dir is expanded (~ → $HOME) during parsing.
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
@@ -82,6 +84,19 @@ func TestParseConfigInvalidExcludeRegex(t *testing.T) {
 func TestParseConfigUnknownFlag(t *testing.T) {
 	_, err := parseConfig([]string{"--bogus-flag"})
 	require.Error(t, err)
+}
+
+func TestParseConfigNoCapture(t *testing.T) {
+	cfg, err := parseConfig([]string{"--no-capture"})
+	require.NoError(t, err)
+	assert.True(t, cfg.NoCapture, "--no-capture must disable on-disk JSON capture")
+}
+
+func TestParseConfigOutputDirOverridesDefault(t *testing.T) {
+	cfg, err := parseConfig([]string{"--output-dir", "/tmp/out"})
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/out", cfg.OutputDir)
+	assert.False(t, cfg.NoCapture)
 }
 
 func TestParseConfigVerboseSetsDebugLevel(t *testing.T) {
@@ -155,6 +170,7 @@ func TestRunGracefulShutdown(t *testing.T) {
 	cfg.Port = 0 // ephemeral
 	cfg.APIPort = 0
 	cfg.BufferSize = 10
+	cfg.NoCapture = true // keep the test focused; never touch a relative captures/ dir
 
 	stop := make(chan struct{})
 	defer close(stop)

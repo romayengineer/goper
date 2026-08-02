@@ -59,10 +59,10 @@ Tracking document for implemented features (checked) and new feature ideas (open
 
 ### Output (`internal/output`)
 
-- [x] `--output-dir` writes each JSON response body as pretty `.json` (`<id>.json`) organized per domain: `captures/<domain>/<id>.json`
+- [x] JSON capture to disk on by default: writes each response body that parses as JSON as pretty `.json` (`<id>.json`) organized per domain: `captures/<domain>/<id>.json` (default dir `captures`; `--output-dir` moves it, `--no-capture` disables)
 - [x] `--output-format ndjson` appends compact JSON bodies to `captures/<domain>/responses.jsonl` (one stream per domain)
 - [x] Domain folder names sanitized (port stripped, unsafe chars replaced, path-traversal hosts like `..` → `unknown`)
-- [x] Non-JSON content types and invalid JSON skipped
+- [x] Non-JSON bodies (bodies that don't parse as JSON) skipped regardless of Content-Type
 - [x] Filesystem abstraction for unit testing
 - [x] Concurrent-safe append writer for NDJSON
 
@@ -75,7 +75,7 @@ Tracking document for implemented features (checked) and new feature ideas (open
 
 ### CLI & Runtime (`cmd/goper`, `internal/config`)
 
-- [x] Flags: `--port`, `--api-port`, `--ca-dir`, `--transparent`, `--verbose`, `--buffer`, `--output-dir`, `--output-format`, `--log-format`, `--request-body-limit`, `--response-body-limit`, `--capture-include`, `--capture-exclude`
+- [x] Flags: `--port`, `--api-port`, `--ca-dir`, `--transparent`, `--verbose`, `--buffer`, `--output-dir`, `--output-format`, `--no-capture`, `--log-format`, `--request-body-limit`, `--response-body-limit`, `--capture-include`, `--capture-exclude`
 - [x] Flag validation fails fast on invalid regexes / output formats
 - [x] `~` expansion in `--ca-dir`
 - [x] Text or JSON structured logging via `log/slog`

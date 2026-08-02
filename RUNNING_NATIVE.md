@@ -27,7 +27,8 @@ make build        # produces ./goper
 ```
 
 Then start it with the ports and capture settings you want (all flags are
-optional — defaults are proxy `:8080`, API `:8081`, CA at `~/.goper/ca`):
+optional — defaults are proxy `:8080`, API `:8081`, CA at `~/.goper/ca`, and
+JSON captures enabled to `./captures`):
 
 ```sh
 ./goper \
@@ -40,6 +41,11 @@ optional — defaults are proxy `:8080`, API `:8081`, CA at `~/.goper/ca`):
 ```
 
 Notes:
+
+- **JSON capture is on by default** — every response body that parses as JSON
+  is written to `./captures/<domain>/<id>.json` (regardless of its
+  `Content-Type`). `--output-dir` changes the location, and `--no-capture`
+  turns disk capture off entirely (the live dashboard still shows requests).
 
 - **Do not pass `--transparent`** — it requires Linux + root/CAP_NET_ADMIN and
   will fail fast on macOS.
@@ -138,8 +144,9 @@ Then:
 
 1. Open the dashboard: `open http://127.0.0.1:8081` — browse to a few sites in
    the proxied Chrome and watch requests appear in the table (live over SSE).
-2. If you enabled `--output-dir ./captures`, pretty-printed JSON bodies land in
-   `./captures/<domain>/<id>.json`.
+2. By default, pretty-printed JSON bodies land in
+   `./captures/<domain>/<id>.json` (disable with `--no-capture`, or move with
+   `--output-dir`).
 
 ## 6. Stop & clean up
 
@@ -168,7 +175,7 @@ Then:
 | HTTPS sites time out / no CONNECT | Confirm goper is listening: `curl -s http://127.0.0.1:8081/api/stats` |
 | `transparent mode requires running as root` / platform error | You passed `--transparent` — remove it (macOS only supports explicit proxy mode) |
 | `listen :8080: address already in use` | Another process holds the port — pass `--port` to a free port and update `--proxy-server` to match |
-| Requests work but nothing is captured | Check `--capture-include`/`--capture-exclude` filters and the API dashboard's filters; confirm the browser is using the proxied profile |
+| Requests work but nothing is captured | Confirm you didn't pass `--no-capture`; check `--capture-include`/`--capture-exclude` filters and the API dashboard's filters; confirm the browser is using the proxied profile |
 
 ---
 

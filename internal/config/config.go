@@ -30,14 +30,17 @@ type Config struct {
 	LogLevel          slog.Level
 	OutputDir         string
 	OutputFormat      string
+	NoCapture         bool
 	RequestBodyLimit  int64
 	ResponseBodyLimit int64
 	CaptureInclude    string
 	CaptureExclude    string
 }
 
-// Default returns the default configuration. ResponseBodyLimit defaults to
-// 1 MiB to preserve the historical hardcoded response cap; 0 means unlimited.
+// Default returns the default configuration. JSON capture to disk is enabled by
+// default and lands in the "captures" directory relative to the working
+// directory; pass --no-capture to disable. ResponseBodyLimit defaults to 1 MiB
+// to preserve the historical hardcoded response cap; 0 means unlimited.
 func Default() *Config {
 	return &Config{
 		Port:              8080,
@@ -48,6 +51,7 @@ func Default() *Config {
 		BufferSize:        10000,
 		LogFormat:         "text",
 		LogLevel:          slog.LevelInfo,
+		OutputDir:         "captures",
 		OutputFormat:      "json",
 		ResponseBodyLimit: 1 << 20, // 1 MiB
 	}
