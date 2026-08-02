@@ -91,6 +91,11 @@ func (s *Server) runTransparent(l net.Listener) error {
 		"resolver", fmt.Sprintf("%T", s.resolver),
 	)
 
+	return s.acceptLoop(l)
+}
+
+// acceptLoop accepts and handles connections until a fatal error.
+func (s *Server) acceptLoop(l net.Listener) error {
 	for {
 		conn, err := acceptOnce(l)
 		if err != nil {
@@ -105,30 +110,37 @@ func (s *Server) runTransparent(l net.Listener) error {
 func acceptOnce(l net.Listener) (net.Conn, error) {
 	for {
 		conn, err := l.Accept()
-		if err != nil {
-			if !acceptRetryable(err) {
-				return nil, err
-			}
+		if acceptContinue(err) {
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
-		return conn, nil
+		return conn, err
 	}
+}
+
+// acceptContinue reports whether a transient accept error should be retried.
+func acceptContinue(err error) bool {
+	return err != nil && acceptRetryable(err)
 }
 
 // initTransparent defaults the resolver and peeker if unset. It reports false
 // when no SNI resolver is available, meaning transparent mode is unsupported.
 func (s *Server) initTransparent() bool {
-	if s.resolver == nil {
-		s.resolver = defaultResolver()
-	}
-	if s.resolver == nil {
+	if !s.initResolver() {
 		return false
 	}
 	if s.peeker == nil {
 		s.peeker = DefaultSNIPeeker{}
 	}
 	return true
+}
+
+// initResolver defaults the resolver if unset, reporting whether one exists.
+func (s *Server) initResolver() bool {
+	if s.resolver == nil {
+		s.resolver = defaultResolver()
+	}
+	return s.resolver != nil
 }
 
 // acceptRetryable reports whether a listener error is transient (a timeout),
@@ -147,20 +159,39 @@ func (s *Server) handleTransparentConn(conn net.Conn) {
 		return
 	}
 
-	if err := conn.SetReadDeadline(time.Now().Add(peekTimeout)); err != nil {
+	first, br, ok := peekAndBuffer(conn)
+	if !ok {
 		return
 	}
-	br := bufio.NewReaderSize(conn, 64<<10)
 
-	first, err := br.Peek(1)
+	s.dispatchTransparent(first, br, conn)
+}
+
+// peekAndBuffer reads the first byte to classify the connection, returning a
+// buffered reader over the same connection.
+func peekAndBuffer(conn net.Conn) (first byte, br *bufio.Reader, ok bool) {
+	if !setPeekDeadline(conn) {
+		return 0, nil, false
+	}
+	br = bufio.NewReaderSize(conn, 64<<10)
+
+	firstBytes, err := br.Peek(1)
 	if err != nil {
-		return
+		return 0, nil, false
 	}
 
 	// Clear the peek deadline; the proxied session is long-lived.
 	_ = conn.SetReadDeadline(time.Time{})
 
-	s.dispatchTransparent(first[0], br, conn)
+	return firstBytes[0], br, true
+}
+
+// setPeekDeadline bounds the SNI peek window, reporting success.
+func setPeekDeadline(conn net.Conn) bool {
+	if err := conn.SetReadDeadline(time.Now().Add(peekTimeout)); err != nil {
+		return false
+	}
+	return true
 }
 
 // dispatchTransparent routes a transparent connection to TLS or HTTP handling
@@ -236,13 +267,7 @@ func (s *Server) tlsConfigFor(fallbackHost string) *tls.Config {
 // rewriting relative (transparent-style) request URLs to absolute ones.
 func (s *Server) serveInner(inner net.Conn, scheme, fallbackHost string) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodConnect && !r.URL.IsAbs() {
-			r.URL.Scheme = scheme
-			r.URL.Host = r.Host
-			if r.URL.Host == "" {
-				r.URL.Host = fallbackHost
-			}
-		}
+		rewriteTransparentURL(r, scheme, fallbackHost)
 		s.proxy.ServeHTTP(w, r)
 	})
 
@@ -255,4 +280,23 @@ func (s *Server) serveInner(inner net.Conn, scheme, fallbackHost string) {
 	l.conn = &closeNotifyConn{Conn: inner, onClose: func() { _ = l.Close() }}
 
 	_ = serveWithTimeouts(handler, l)
+}
+
+// rewriteTransparentURL makes a relative (transparent-style) request URL
+// absolute so the proxy can route it.
+func rewriteTransparentURL(r *http.Request, scheme, fallbackHost string) {
+	if isAbsolute(r) {
+		return
+	}
+	r.URL.Scheme = scheme
+	r.URL.Host = r.Host
+	if r.URL.Host == "" {
+		r.URL.Host = fallbackHost
+	}
+}
+
+// isAbsolute reports whether the request targets an absolute URL or is an
+// HTTPS CONNECT tunnel.
+func isAbsolute(r *http.Request) bool {
+	return r.Method == http.MethodConnect || r.URL.IsAbs()
 }

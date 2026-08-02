@@ -61,6 +61,11 @@ func peekTLSRecord(r *bufio.Reader) ([]byte, error) {
 		return nil, err
 	}
 
+	return peekRecordBody(r, recordLen)
+}
+
+// peekRecordBody peeks the full TLS record payload.
+func peekRecordBody(r *bufio.Reader, recordLen int) ([]byte, error) {
 	data, err := r.Peek(5 + recordLen)
 	if err != nil {
 		return nil, fmt.Errorf("peek TLS record: %w", err)
@@ -83,11 +88,7 @@ func tlsRecordHeader(header []byte) (int, error) {
 }
 
 func parseClientHello(data []byte) *ClientHello {
-	if len(data) < 2 {
-		return nil
-	}
-
-	if data[0] != 1 {
+	if !isHandshakeType(data) {
 		return nil
 	}
 
@@ -97,6 +98,11 @@ func parseClientHello(data []byte) *ClientHello {
 	}
 
 	return helloFromSNI(data, offset, extensionsLen)
+}
+
+// isHandshakeType reports whether the data starts a TLS ClientHello handshake.
+func isHandshakeType(data []byte) bool {
+	return len(data) >= 2 && data[0] == 1
 }
 
 // helloFromSNI scans the extensions block for an SNI hostname, returning a
@@ -118,13 +124,8 @@ func helloFromSNI(data []byte, offset, extensionsLen int) *ClientHello {
 // offset of the extensions block and its length, or ok=false if the data is
 // truncated.
 func skipClientHelloFixed(data []byte, offset int) (extOffset, extLen int, ok bool) {
-	offset, ok = skipClientHelloVersionRandom(data, offset)
+	offset, ok = skipClientHelloBody(data, offset)
 	if !ok {
-		return 0, 0, false
-	}
-
-	offset, variableOK := skipClientHelloVariable(data, offset)
-	if !variableOK {
 		return 0, 0, false
 	}
 
@@ -134,6 +135,16 @@ func skipClientHelloFixed(data []byte, offset int) (extOffset, extLen int, ok bo
 	extensionsLen := int(data[offset])<<8 | int(data[offset+1])
 
 	return offset + 2, extensionsLen, true
+}
+
+// skipClientHelloBody skips the fixed version/random and the variable session,
+// cipher suites and compression fields.
+func skipClientHelloBody(data []byte, offset int) (int, bool) {
+	offset, ok := skipClientHelloVersionRandom(data, offset)
+	if !ok {
+		return 0, false
+	}
+	return skipClientHelloVariable(data, offset)
 }
 
 // skipClientHelloVersionRandom skips the TLS version and random fields.
@@ -148,6 +159,22 @@ func skipClientHelloVersionRandom(data []byte, offset int) (int, bool) {
 // suites and compression fields, returning the offset after them, or ok=false
 // if the data is truncated.
 func skipClientHelloVariable(data []byte, offset int) (int, bool) {
+	offset, ok := skipSessionAndCipher(data, offset)
+	if !ok {
+		return 0, false
+	}
+
+	if offset+1 > len(data) {
+		return 0, false
+	}
+	compressionLen := int(data[offset])
+	offset += 1 + compressionLen
+
+	return offset, true
+}
+
+// skipSessionAndCipher skips the session id and cipher suites fields.
+func skipSessionAndCipher(data []byte, offset int) (int, bool) {
 	if offset+1 > len(data) {
 		return 0, false
 	}
@@ -160,12 +187,6 @@ func skipClientHelloVariable(data []byte, offset int) (int, bool) {
 	cipherSuiteLen := int(data[offset])<<8 | int(data[offset+1])
 	offset += 2 + cipherSuiteLen
 
-	if offset+1 > len(data) {
-		return 0, false
-	}
-	compressionLen := int(data[offset])
-	offset += 1 + compressionLen
-
 	return offset, true
 }
 
@@ -176,18 +197,21 @@ func sniFromExtensions(data []byte, offset, end int) string {
 	for offset+4 <= end {
 		extType := uint16(data[offset])<<8 | uint16(data[offset+1])
 		extLen := int(data[offset+2])<<8 | int(data[offset+3])
-		offset += 4
-
-		if isSNIExtension(extType, extLen, offset, end) {
-			if name := sniFromServerNameList(data, offset, end, extLen); name != "" {
-				return name
-			}
+		if name := sniFromExtension(data, offset+4, end, extType, extLen); name != "" {
+			return name
 		}
-
-		offset += extLen
+		offset += 4 + extLen
 	}
 
 	return ""
+}
+
+// sniFromExtension extracts the SNI hostname from one extension, if present.
+func sniFromExtension(data []byte, offset, end int, extType uint16, extLen int) string {
+	if !isSNIExtension(extType, extLen, offset, end) {
+		return ""
+	}
+	return sniFromServerNameList(data, offset, end, extLen)
 }
 
 // isSNIExtension reports whether the extension at offset is an SNI

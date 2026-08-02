@@ -31,15 +31,18 @@ func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
+	return m.checkRule(call)
+}
 
-	if containsFlag(call, "-C") {
-		if m.rulesExist {
-			return nil, nil
-		}
-		return nil, errors.New("rule does not exist")
+// checkRule returns the mock result for an iptables -C (check) invocation.
+func (m *mockRunner) checkRule(call []string) ([]byte, error) {
+	if !containsFlag(call, "-C") {
+		return nil, nil
 	}
-
-	return nil, nil
+	if m.rulesExist {
+		return nil, nil
+	}
+	return nil, errors.New("rule does not exist")
 }
 
 func (m *mockRunner) countFlag(flag string) int {

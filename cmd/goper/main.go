@@ -48,9 +48,7 @@ func run(cfg *config.Config) int {
 		return 1
 	}
 
-	if cfg.OutputDir != "" {
-		wireOutputs(proxyServer, cfg)
-	}
+	setupOutputs(proxyServer, cfg)
 
 	var iptMgr iptables.RuleManager = iptables.NewManager(cfg.ProxyPort(), nil)
 
@@ -113,16 +111,25 @@ func setupTransparentIfEnabled(cfg *config.Config, iptMgr iptables.RuleManager) 
 	if !cfg.Transparent {
 		return 0
 	}
-	if err := checkTransparentPrivileges(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	if err := iptMgr.Setup(); err != nil {
-		slog.Error("setup iptables", "error", err)
+	if err := installRules(iptMgr); err != nil {
 		return 1
 	}
 	slog.Info("transparent proxy rules installed")
 	return 0
+}
+
+// installRules verifies privileges and installs iptables rules, logging any
+// failure.
+func installRules(iptMgr iptables.RuleManager) error {
+	if err := checkTransparentPrivileges(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return err
+	}
+	if err := iptMgr.Setup(); err != nil {
+		slog.Error("setup iptables", "error", err)
+		return err
+	}
+	return nil
 }
 
 // teardownTransparent removes the iptables rules on shutdown.
@@ -163,6 +170,14 @@ func wireOutputs(proxyServer proxy.Runnable, cfg *config.Config) {
 		proxyServer.AddOutput(output.NewJSONBodyWriter(cfg.OutputDir))
 	}
 	slog.Info("JSON output enabled", "dir", cfg.OutputDir, "format", cfg.OutputFormat)
+}
+
+// setupOutputs wires the on-disk capture writer when an output directory is
+// configured.
+func setupOutputs(proxyServer proxy.Runnable, cfg *config.Config) {
+	if cfg.OutputDir != "" {
+		wireOutputs(proxyServer, cfg)
+	}
 }
 
 // checkTransparentPrivileges verifies the process can manage iptables

@@ -75,8 +75,12 @@ func (w *JSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
 		return err
 	}
 
-	path := filepath.Join(domainDir, string(entry.ID)+".json")
-	if err := w.fs.WriteFile(path, pretty, 0o644); err != nil {
+	return writePrettyJSON(w.fs, filepath.Join(domainDir, string(entry.ID)+".json"), pretty)
+}
+
+// writePrettyJSON writes an indented JSON body file.
+func writePrettyJSON(fs FileSystem, path string, pretty []byte) error {
+	if err := fs.WriteFile(path, pretty, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
@@ -219,7 +223,15 @@ func isSafeRune(r rune) bool {
 }
 
 func isAlnum(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+	return isLower(r) || isDigit(r)
+}
+
+func isLower(r rune) bool {
+	return r >= 'a' && r <= 'z'
+}
+
+func isDigit(r rune) bool {
+	return r >= '0' && r <= '9'
 }
 
 // validSegmentName rejects empty or dot-segment names, which would escape the
@@ -231,11 +243,16 @@ func validSegmentName(name string) bool {
 // jsonBody returns the raw response body bytes if the entry carries a JSON
 // response, and ok=false otherwise.
 func jsonBody(entry *capture.CapturedEntry) ([]byte, bool) {
-	if entry == nil || entry.ResponseBody == nil {
+	if !hasBody(entry) {
 		return nil, false
 	}
 	if !capture.IsJSONContentType(entry.ContentType) {
 		return nil, false
 	}
 	return []byte(*entry.ResponseBody), true
+}
+
+// hasBody reports whether the entry carries a response body.
+func hasBody(entry *capture.CapturedEntry) bool {
+	return entry != nil && entry.ResponseBody != nil
 }

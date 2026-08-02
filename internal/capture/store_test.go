@@ -189,12 +189,19 @@ func TestSubscribeMultiple(t *testing.T) {
 
 	rb.Push(newTestEntry("a"))
 
-	for name, ch := range map[string]chan *CapturedEntry{"ch1": ch1, "ch2": ch2} {
-		select {
-		case <-ch:
-		case <-time.After(time.Second):
-			t.Fatalf("%s did not receive entry", name)
-		}
+	recvEntry(t, ch1)
+	recvEntry(t, ch2)
+}
+
+// recvEntry receives one entry from ch, failing the test on timeout.
+func recvEntry(t *testing.T, ch <-chan *CapturedEntry) *CapturedEntry {
+	t.Helper()
+	select {
+	case e := <-ch:
+		return e
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for entry")
+		return nil
 	}
 }
 

@@ -156,17 +156,28 @@ func TestRunGracefulShutdown(t *testing.T) {
 	cfg.APIPort = 0
 	cfg.BufferSize = 10
 
+	stop := make(chan struct{})
+	defer close(stop)
+	go signalSIGTERMUntilClosed(stop)
+
 	done := make(chan int, 1)
 	go func() { done <- run(cfg) }()
 
-	deadline := time.After(15 * time.Second)
+	select {
+	case code := <-done:
+		assert.Equal(t, 0, code, "graceful shutdown after SIGTERM must exit 0")
+	case <-time.After(15 * time.Second):
+		t.Fatal("run did not shut down after SIGTERM")
+	}
+}
+
+// signalSIGTERMUntilClosed keeps sending SIGTERM to this process until stop is
+// closed.
+func signalSIGTERMUntilClosed(stop <-chan struct{}) {
 	for {
 		select {
-		case code := <-done:
-			assert.Equal(t, 0, code, "graceful shutdown after SIGTERM must exit 0")
+		case <-stop:
 			return
-		case <-deadline:
-			t.Fatal("run did not shut down after SIGTERM")
 		default:
 		}
 		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)

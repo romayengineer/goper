@@ -188,14 +188,7 @@ func startSSEUpstream(release <-chan struct{}) *httptest.Server {
 func awaitFirstLine(t *testing.T, resp *http.Response) string {
 	t.Helper()
 	done := make(chan string, 1)
-	go func() {
-		line, err := bufio.NewReader(resp.Body).ReadString('\n')
-		if err != nil {
-			done <- "read error: " + err.Error()
-			return
-		}
-		done <- line
-	}()
+	go readFirstLine(resp.Body, done)
 	select {
 	case line := <-done:
 		return line
@@ -203,6 +196,16 @@ func awaitFirstLine(t *testing.T, resp *http.Response) string {
 		t.Fatal("first SSE event not delivered within 5s: capture is buffering the stream")
 		return ""
 	}
+}
+
+// readFirstLine reads the first line from a stream into done.
+func readFirstLine(body io.Reader, done chan<- string) {
+	line, err := bufio.NewReader(body).ReadString('\n')
+	if err != nil {
+		done <- "read error: " + err.Error()
+		return
+	}
+	done <- line
 }
 
 // TestServerRunListenError verifies Run reports a bind failure instead of

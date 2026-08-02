@@ -194,9 +194,17 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		return resp
 	}
 
+	s.recordResponse(data, resp)
+
+	return resp
+}
+
+// recordResponse captures a completed response into the store, skipping
+// streaming bodies (e.g. SSE) that must stream to the client untouched.
+func (s *Server) recordResponse(data captureCtx, resp *http.Response) {
 	bodyBytes, truncated, skipped, err := readBodyBounded(resp, s.config.GetResponseBodyLimit())
 	if err != nil {
-		return resp
+		return
 	}
 	if skipped {
 		// Streaming response (e.g. SSE): the body is left untouched so it
@@ -204,13 +212,11 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		// negative for chunked/close-delimited framing) and the entry is
 		// captured without a body.
 		s.captureStreaming(data, resp)
-		return resp
+		return
 	}
 
 	fixContentLength(resp, bodyBytes, truncated)
 	s.captureResponse(data, resp, bodyBytes)
-
-	return resp
 }
 
 // responseData extracts the capture context, skipping nil responses.
@@ -289,23 +295,36 @@ type captureCtx struct {
 //   - err: a read failure; even on error resp.Body is rewired with whatever was
 //     consumed so the client never loses bytes
 func readBodyBounded(resp *http.Response, limit int64) (body []byte, truncated, skipped bool, err error) {
-	if resp.Body == nil {
-		return nil, false, false, nil
+	if !canReadBody(resp) {
+		return nil, false, resp.Body != nil, nil
 	}
 
-	if isStreamingResponse(resp) {
-		return nil, false, true, nil
-	}
-
-	buffered, err := readForCapture(resp.Body, resp.ContentLength, limit)
-	// Always rewire before returning: on error the consumed prefix must still
-	// be delivered to the client followed by the untouched remainder.
-	resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(buffered), resp.Body))
+	buffered, err := readAndRewire(resp, limit)
 	if err != nil {
 		return nil, false, false, err
 	}
 
 	return buffered, captureExceededLimit(resp, buffered, limit), false, nil
+}
+
+// canReadBody reports whether the response body is present and not a streaming
+// response that must be left untouched.
+func canReadBody(resp *http.Response) bool {
+	return resp.Body != nil && !isStreamingResponse(resp)
+}
+
+// readAndRewire reads the body for capture and rewires resp.Body so the full
+// body still streams to the client: the captured prefix is replayed followed
+// by whatever remains in the original body.
+func readAndRewire(resp *http.Response, limit int64) ([]byte, error) {
+	buffered, err := readForCapture(resp.Body, resp.ContentLength, limit)
+	// Always rewire before returning: on error the consumed prefix must still
+	// be delivered to the client followed by the untouched remainder.
+	resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(buffered), resp.Body))
+	if err != nil {
+		return nil, err
+	}
+	return buffered, nil
 }
 
 // captureExceededLimit reports whether the captured prefix hit the capture

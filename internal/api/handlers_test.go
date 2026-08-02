@@ -61,8 +61,15 @@ func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
 }
 
 func entryMatches(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return !sinceExcludes(opts, e) && !methodExcludes(opts, e) &&
-		!statusExcludes(opts, e) && !urlExcludes(opts, e)
+	return !sinceOrMethodExcludes(opts, e) && !statusOrURLExcludes(opts, e)
+}
+
+func sinceOrMethodExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
+	return sinceExcludes(opts, e) || methodExcludes(opts, e)
+}
+
+func statusOrURLExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
+	return statusExcludes(opts, e) || urlExcludes(opts, e)
 }
 
 func sinceExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {

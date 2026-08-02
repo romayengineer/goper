@@ -141,6 +141,11 @@ func (rb *RingBuffer) List(opts ListOpts) []*CapturedEntry {
 		return nil
 	}
 
+	return paginate(rb.scan(opts), opts)
+}
+
+// scan collects the matching entries (caller holds the read lock).
+func (rb *RingBuffer) scan(opts ListOpts) []*CapturedEntry {
 	result := make([]*CapturedEntry, 0, rb.count)
 	for i := 0; i < rb.capacity; i++ {
 		idx := (rb.head + i) % rb.capacity
@@ -148,8 +153,7 @@ func (rb *RingBuffer) List(opts ListOpts) []*CapturedEntry {
 			result = append(result, rb.buffer[idx])
 		}
 	}
-
-	return paginate(result, opts)
+	return result
 }
 
 // keep reports whether the entry at idx is present and satisfies the filters.
@@ -160,8 +164,15 @@ func (rb *RingBuffer) keep(idx int, opts ListOpts) bool {
 
 // matches reports whether an entry satisfies the List filters.
 func (opts ListOpts) matches(entry *CapturedEntry) bool {
-	return !opts.sinceExcludes(entry) && !opts.methodExcludes(entry) &&
-		!opts.statusExcludes(entry) && !opts.urlExcludes(entry)
+	return !opts.sinceOrMethodExcludes(entry) && !opts.statusOrURLExcludes(entry)
+}
+
+func (opts ListOpts) sinceOrMethodExcludes(entry *CapturedEntry) bool {
+	return opts.sinceExcludes(entry) || opts.methodExcludes(entry)
+}
+
+func (opts ListOpts) statusOrURLExcludes(entry *CapturedEntry) bool {
+	return opts.statusExcludes(entry) || opts.urlExcludes(entry)
 }
 
 func (opts ListOpts) sinceExcludes(entry *CapturedEntry) bool {

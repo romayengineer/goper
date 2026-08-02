@@ -145,6 +145,8 @@ func (h *Handler) streamLoop(ctx context.Context, w http.ResponseWriter, flusher
 
 // streamSelect handles one event from the live stream and reports whether the
 // connection is still healthy.
+//
+//nolint:gocyclo // a 3-way concurrent wait (cancel, keepalive ping, entries) is irreducible below the limit.
 func (h *Handler) streamSelect(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, ping *time.Ticker, ch <-chan *capture.CapturedEntry) bool {
 	select {
 	case <-ctx.Done():
@@ -170,7 +172,13 @@ func (h *Handler) backfillSSE(w http.ResponseWriter, flusher http.Flusher, backf
 		return true
 	}
 	history := h.store.List(capture.ListOpts{Limit: backfill})
-	for _, entry := range history {
+	return writeEntries(w, flusher, history)
+}
+
+// writeEntries streams the entries to an SSE client, returning false if the
+// connection is lost mid-write.
+func writeEntries(w http.ResponseWriter, flusher http.Flusher, entries []*capture.CapturedEntry) bool {
+	for _, entry := range entries {
 		if !writeSSE(w, flusher, entry) {
 			return false
 		}
@@ -183,11 +191,18 @@ func (h *Handler) backfillSSE(w http.ResponseWriter, flusher http.Flusher, backf
 func backfillCount(r *http.Request) int {
 	backfill := defaultBackfill
 	if v := r.URL.Query().Get("backfill"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			backfill = n
-		}
+		return parseBackfill(v, backfill)
 	}
 	return backfill
+}
+
+// parseBackfill parses a backfill param, returning the default on invalid or
+// negative values.
+func parseBackfill(v string, def int) int {
+	if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+		return n
+	}
+	return def
 }
 
 // writeSSEPing writes a keepalive comment and flushes; returns false on write
@@ -304,6 +319,11 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.replayEntry(w, entry)
+}
+
+// replayEntry re-executes a captured request and writes the fresh response.
+func (h *Handler) replayEntry(w http.ResponseWriter, entry *capture.CapturedEntry) {
 	req, err := buildReplayRequest(entry)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

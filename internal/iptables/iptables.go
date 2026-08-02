@@ -87,7 +87,11 @@ func (m *Manager) ensureRule(r rule) error {
 	if exists {
 		return nil
 	}
+	return m.addRule(r)
+}
 
+// addRule appends a rule to its chain.
+func (m *Manager) addRule(r rule) error {
 	args := append([]string{"-t", r.table, "-A", r.chain}, r.spec...)
 	out, err := m.runner.Run("iptables", args...)
 	if err != nil {

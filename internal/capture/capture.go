@@ -33,7 +33,7 @@ func NewDefaultRecorder(requestBodyLimit, responseBodyLimit int64) Recorder {
 
 func (r *DefaultRecorder) CaptureRequest(req *http.Request) CapturedEntry {
 	entry := captureRequest(req, r.RequestBodyLimit)
-	if r.RequestBodyLimit > 0 && entry.RequestBody != nil && int64(len(*entry.RequestBody)) > r.RequestBodyLimit {
+	if entry.RequestBody != nil && overLimit(r.RequestBodyLimit, len(*entry.RequestBody)) {
 		entry.RequestBody = nil
 	}
 	return entry
@@ -41,10 +41,16 @@ func (r *DefaultRecorder) CaptureRequest(req *http.Request) CapturedEntry {
 
 func (r *DefaultRecorder) CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start time.Time) CaptureResult {
 	result := CaptureResponse(statusCode, header, bodyBytes, start)
-	if r.ResponseBodyLimit > 0 && result.ResponseBody != nil && int64(len(*result.ResponseBody)) > r.ResponseBodyLimit {
+	if result.ResponseBody != nil && overLimit(r.ResponseBodyLimit, len(*result.ResponseBody)) {
 		result.ResponseBody = nil
 	}
 	return result
+}
+
+// overLimit reports whether a captured body of length n exceeds a capture
+// limit (0 = unlimited).
+func overLimit(limit int64, n int) bool {
+	return limit > 0 && int64(n) > limit
 }
 
 func (r *DefaultRecorder) CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry {
@@ -54,24 +60,36 @@ func (r *DefaultRecorder) CombineEntry(reqEntry CapturedEntry, result CaptureRes
 func headersToMap(h http.Header) map[string]string {
 	m := make(map[string]string, len(h))
 	for k, v := range h {
-		lower := strings.ToLower(k)
-		if redactHeader(lower) {
+		if redactHeader(strings.ToLower(k)) {
 			m[k] = "***REDACTED***"
 			continue
 		}
-		if len(v) == 1 {
-			m[k] = v[0]
-		} else {
-			m[k] = strings.Join(v, ", ")
-		}
+		m[k] = joinValues(v)
 	}
 	return m
+}
+
+// joinValues joins a header value list.
+func joinValues(v []string) string {
+	if len(v) == 1 {
+		return v[0]
+	}
+	return strings.Join(v, ", ")
+}
+
+// redactedHeaders are header names carrying credentials that must never be
+// persisted in captured entries.
+var redactedHeaders = map[string]bool{
+	"authorization":       true,
+	"cookie":              true,
+	"set-cookie":          true,
+	"proxy-authorization": true,
 }
 
 // redactHeader reports whether a header carries credentials that must not be
 // persisted in captured entries.
 func redactHeader(key string) bool {
-	return key == "authorization" || key == "cookie" || key == "set-cookie" || key == "proxy-authorization"
+	return redactedHeaders[key]
 }
 
 func CaptureRequest(req *http.Request) CapturedEntry {
@@ -132,14 +150,26 @@ func CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start
 		ContentType:     header.Get("Content-Type"),
 	}
 
-	if len(bodyBytes) > 0 {
-		s := string(bodyBytes)
-		if isPrintable(s) || IsJSONContentType(cr.ContentType) {
-			cr.ResponseBody = &s
-		}
-	}
+	cr.ResponseBody = captureBody(bodyBytes, cr.ContentType)
 
 	return cr
+}
+
+// captureBody returns the body string when it is worth capturing.
+func captureBody(bodyBytes []byte, contentType string) *string {
+	if len(bodyBytes) == 0 {
+		return nil
+	}
+	s := string(bodyBytes)
+	if worthCapturing(s, contentType) {
+		return &s
+	}
+	return nil
+}
+
+// worthCapturing reports whether a response body should be persisted.
+func worthCapturing(s, contentType string) bool {
+	return isPrintable(s) || IsJSONContentType(contentType)
 }
 
 // IsJSONContentType reports whether a Content-Type value denotes JSON,
@@ -157,10 +187,13 @@ func IsJSONContentType(contentType string) bool {
 
 // isJSONMimeType reports whether a mime type (no parameters) denotes JSON.
 func isJSONMimeType(ct string) bool {
-	return ct == "application/json" ||
-		ct == "text/json" ||
-		strings.HasSuffix(ct, "+json") ||
-		strings.Contains(ct, "ndjson")
+	return ct == "application/json" || ct == "text/json" ||
+		hasJSONMarker(ct)
+}
+
+// hasJSONMarker reports the +json suffix or ndjson marker.
+func hasJSONMarker(ct string) bool {
+	return strings.HasSuffix(ct, "+json") || strings.Contains(ct, "ndjson")
 }
 
 func isPrintable(s string) bool {
@@ -173,10 +206,15 @@ func isPrintable(s string) bool {
 }
 
 // isPrintableChar reports whether r is printable: at or above the printable
-// range, or a control character we tolerate in captured bodies (newline,
-// carriage return, tab).
+// range, or a control character we tolerate in captured bodies.
 func isPrintableChar(r rune) bool {
-	return r >= 32 || r == '\n' || r == '\r' || r == '\t'
+	return r >= 32 || isToleratedControl(r)
+}
+
+// isToleratedControl reports the control characters we keep in captured bodies
+// (newline, carriage return, tab).
+func isToleratedControl(r rune) bool {
+	return r == '\n' || r == '\r' || r == '\t'
 }
 
 func CombineEntry(reqEntry CapturedEntry, result CaptureResult) *CapturedEntry {

@@ -51,12 +51,21 @@ func GenerateCA() (*CA, error) {
 // caCertificate creates a self-signed CA certificate and returns both the
 // parsed certificate and its DER encoding.
 func caCertificate(key *ecdsa.PrivateKey) (*x509.Certificate, []byte, error) {
+	template, err := caCertificateTemplate(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	return createCertificate(key, template)
+}
+
+// caCertificateTemplate builds the self-signed CA template with a random serial.
+func caCertificateTemplate(key *ecdsa.PrivateKey) (*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate serial: %w", err)
+		return nil, fmt.Errorf("generate serial: %w", err)
 	}
 
-	template := &x509.Certificate{
+	return &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:   "goper MITM CA",
@@ -68,8 +77,11 @@ func caCertificate(key *ecdsa.PrivateKey) (*x509.Certificate, []byte, error) {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            0,
-	}
+	}, nil
+}
 
+// createCertificate creates and parses a self-signed certificate.
+func createCertificate(key *ecdsa.PrivateKey, template *x509.Certificate) (*x509.Certificate, []byte, error) {
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create CA cert: %w", err)
@@ -91,15 +103,18 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 		return loadCA(certPath, keyPath)
 	}
 
+	return createAndPersistCA(dir, certPath, keyPath)
+}
+
+// createAndPersistCA generates a fresh CA and writes it to disk.
+func createAndPersistCA(dir, certPath, keyPath string) (*CA, error) {
 	ca, err := GenerateCA()
 	if err != nil {
 		return nil, err
 	}
-
 	if err := persistCA(ca, dir, certPath, keyPath); err != nil {
 		return nil, err
 	}
-
 	return ca, nil
 }
 
@@ -109,16 +124,25 @@ func persistCA(ca *CA, dir, certPath, keyPath string) error {
 		return fmt.Errorf("create CA dir: %w", err)
 	}
 
-	certPEM, err := pemEncode(ca.Cert.Raw, "CERTIFICATE")
-	if err != nil {
-		return err
-	}
-	keyPEM, err := encodeCAKeyPEM(ca)
+	certPEM, keyPEM, err := encodeCAFiles(ca)
 	if err != nil {
 		return err
 	}
 
 	return writeCAFiles(certPath, keyPath, certPEM, keyPEM)
+}
+
+// encodeCAFiles encodes the CA certificate and key as PEM.
+func encodeCAFiles(ca *CA) (certPEM, keyPEM []byte, err error) {
+	certPEM, err = pemEncode(ca.Cert.Raw, "CERTIFICATE")
+	if err != nil {
+		return nil, nil, err
+	}
+	keyPEM, err = encodeCAKeyPEM(ca)
+	if err != nil {
+		return nil, nil, err
+	}
+	return certPEM, keyPEM, nil
 }
 
 // writeCAFiles persists the CA certificate and key with appropriate
@@ -145,13 +169,9 @@ func encodeCAKeyPEM(ca *CA) ([]byte, error) {
 
 // loadCA reads and parses a previously persisted CA key pair from disk.
 func loadCA(certPath, keyPath string) (*CA, error) {
-	certPEM, err := os.ReadFile(certPath) // #nosec G304 -- path derives from the configured CA dir
+	certPEM, keyPEM, err := readCAPairFiles(certPath, keyPath)
 	if err != nil {
-		return nil, fmt.Errorf("read CA cert: %w", err)
-	}
-	keyPEM, err := os.ReadFile(keyPath) // #nosec G304 -- path derives from the configured CA dir
-	if err != nil {
-		return nil, fmt.Errorf("read CA key: %w", err)
+		return nil, err
 	}
 
 	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
@@ -160,6 +180,19 @@ func loadCA(certPath, keyPath string) (*CA, error) {
 	}
 
 	return parseCAPair(tlsCert)
+}
+
+// readCAPairFiles reads the CA certificate and key files.
+func readCAPairFiles(certPath, keyPath string) (certPEM, keyPEM []byte, err error) {
+	certPEM, err = os.ReadFile(certPath) // #nosec G304 -- path derives from the configured CA dir
+	if err != nil {
+		return nil, nil, fmt.Errorf("read CA cert: %w", err)
+	}
+	keyPEM, err = os.ReadFile(keyPath) // #nosec G304 -- path derives from the configured CA dir
+	if err != nil {
+		return nil, nil, fmt.Errorf("read CA key: %w", err)
+	}
+	return certPEM, keyPEM, nil
 }
 
 // parseCAPair builds a CA from an already-parsed TLS key pair.
@@ -224,13 +257,21 @@ func (cc *CertCache) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificat
 // back to the connection's local address and finally "localhost".
 func hostForHello(hello *tls.ClientHelloInfo) string {
 	host := hello.ServerName
-	if host == "" && hello.Conn != nil {
-		host = hello.Conn.LocalAddr().String()
+	if host == "" {
+		host = localAddr(hello)
 	}
 	if host == "" {
 		host = "localhost"
 	}
 	return host
+}
+
+// localAddr falls back to the connection's local address.
+func localAddr(hello *tls.ClientHelloInfo) string {
+	if hello.Conn != nil {
+		return hello.Conn.LocalAddr().String()
+	}
+	return ""
 }
 
 // certOrGenerate returns the cached certificate for host, generating it on
@@ -258,6 +299,11 @@ func (cc *CertCache) generateCert(host string) (*tls.Certificate, error) {
 		return nil, fmt.Errorf("generate host key: %w", err)
 	}
 
+	return cc.signHostCert(host, key)
+}
+
+// signHostCert builds and signs a host certificate with the CA.
+func (cc *CertCache) signHostCert(host string, key *ecdsa.PrivateKey) (*tls.Certificate, error) {
 	template, err := hostCertificateTemplate(host, key)
 	if err != nil {
 		return nil, err
