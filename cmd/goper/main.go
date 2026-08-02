@@ -95,9 +95,7 @@ func run(cfg *config.Config) int {
 	sig := <-sigCh
 	slog.Info("shutting down", "signal", sig)
 
-	if cfg.Transparent {
-		teardownTransparent(iptMgr)
-	}
+	shutdownTransparent(cfg, iptMgr)
 
 	slog.Info("stopped")
 	return 0
@@ -123,6 +121,15 @@ func teardownTransparent(iptMgr iptables.RuleManager) {
 	if err := iptMgr.Teardown(); err != nil {
 		slog.Error("remove iptables rules", "error", err)
 	}
+}
+
+// shutdownTransparent tears down transparent-mode iptables rules at shutdown,
+// but only when transparent mode was enabled.
+func shutdownTransparent(cfg *config.Config, iptMgr iptables.RuleManager) {
+	if !cfg.Transparent {
+		return
+	}
+	teardownTransparent(iptMgr)
 }
 
 // setupLogging installs the process-wide slog handler according to the

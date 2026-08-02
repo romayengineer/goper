@@ -61,19 +61,24 @@ func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
 }
 
 func entryMatches(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	if !opts.Since.IsZero() && e.Timestamp.Before(opts.Since) {
-		return false
-	}
-	if opts.Method != "" && e.Method != opts.Method {
-		return false
-	}
-	if opts.Status > 0 && e.StatusCode != opts.Status {
-		return false
-	}
-	if opts.URL != "" && e.URL != opts.URL {
-		return false
-	}
-	return true
+	return !sinceExcludes(opts, e) && !methodExcludes(opts, e) &&
+		!statusExcludes(opts, e) && !urlExcludes(opts, e)
+}
+
+func sinceExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
+	return !opts.Since.IsZero() && e.Timestamp.Before(opts.Since)
+}
+
+func methodExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
+	return opts.Method != "" && e.Method != opts.Method
+}
+
+func statusExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
+	return opts.Status > 0 && e.StatusCode != opts.Status
+}
+
+func urlExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
+	return opts.URL != "" && e.URL != opts.URL
 }
 
 func (m *mockStore) Clear() {

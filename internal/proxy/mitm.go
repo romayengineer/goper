@@ -85,31 +85,40 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 		return nil, err
 	}
 
+	if err := persistCA(ca, dir, certPath, keyPath); err != nil {
+		return nil, err
+	}
+
+	return ca, nil
+}
+
+// persistCA writes a newly generated CA key pair to disk.
+func persistCA(ca *CA, dir, certPath, keyPath string) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("create CA dir: %w", err)
+		return fmt.Errorf("create CA dir: %w", err)
 	}
 
 	certPEM, err := pemEncode(ca.Cert.Raw, "CERTIFICATE")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	keyBytes, err := x509.MarshalECPrivateKey(ca.Key.(*ecdsa.PrivateKey))
 	if err != nil {
-		return nil, fmt.Errorf("marshal CA key: %w", err)
+		return fmt.Errorf("marshal CA key: %w", err)
 	}
 	keyPEM, err := pemEncode(keyBytes, "EC PRIVATE KEY")
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if err := os.WriteFile(certPath, certPEM, 0644); err != nil { // #nosec G306 -- the CA certificate is public: it must be readable so it can be served via the API and installed in browsers
-		return nil, fmt.Errorf("write CA cert: %w", err)
+		return fmt.Errorf("write CA cert: %w", err)
 	}
 	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
-		return nil, fmt.Errorf("write CA key: %w", err)
+		return fmt.Errorf("write CA key: %w", err)
 	}
 
-	return ca, nil
+	return nil
 }
 
 // loadCA reads and parses a previously persisted CA key pair from disk.

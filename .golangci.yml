@@ -17,7 +17,7 @@ linters:
     gocyclo:
       # Report functions with cyclomatic complexity > 15, so 15 is the
       # maximum allowed complexity.
-      min-complexity: 9
+      min-complexity: 8
 
 formatters:
   default: none

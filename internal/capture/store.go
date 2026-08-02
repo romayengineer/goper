@@ -139,19 +139,24 @@ func (rb *RingBuffer) List(opts ListOpts) []*CapturedEntry {
 
 // matches reports whether an entry satisfies the List filters.
 func (opts ListOpts) matches(entry *CapturedEntry) bool {
-	if !opts.Since.IsZero() && entry.Timestamp.Before(opts.Since) {
-		return false
-	}
-	if opts.Method != "" && entry.Method != opts.Method {
-		return false
-	}
-	if opts.Status > 0 && entry.StatusCode != opts.Status {
-		return false
-	}
-	if opts.URL != "" && entry.URL != opts.URL {
-		return false
-	}
-	return true
+	return !opts.sinceExcludes(entry) && !opts.methodExcludes(entry) &&
+		!opts.statusExcludes(entry) && !opts.urlExcludes(entry)
+}
+
+func (opts ListOpts) sinceExcludes(entry *CapturedEntry) bool {
+	return !opts.Since.IsZero() && entry.Timestamp.Before(opts.Since)
+}
+
+func (opts ListOpts) methodExcludes(entry *CapturedEntry) bool {
+	return opts.Method != "" && entry.Method != opts.Method
+}
+
+func (opts ListOpts) statusExcludes(entry *CapturedEntry) bool {
+	return opts.Status > 0 && entry.StatusCode != opts.Status
+}
+
+func (opts ListOpts) urlExcludes(entry *CapturedEntry) bool {
+	return opts.URL != "" && entry.URL != opts.URL
 }
 
 // paginate applies offset/limit pagination to a filtered result.
