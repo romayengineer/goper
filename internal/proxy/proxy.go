@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/elazarl/goproxy"
@@ -168,8 +169,29 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		return resp
 	}
 
-	bodyBytes, truncated, err := readBodyBounded(resp, s.config.GetResponseBodyLimit())
+	bodyBytes, truncated, skipped, err := readBodyBounded(resp, s.config.GetResponseBodyLimit())
 	if err != nil {
+		return resp
+	}
+	if skipped {
+		// Streaming response (e.g. SSE): the body is left untouched so it
+		// streams to the client immediately. ContentLength is preserved (still
+		// negative for chunked/close-delimited framing) and the entry is
+		// captured without a body.
+		result := s.recorder.CaptureResponse(
+			resp.StatusCode,
+			resp.Header,
+			nil,
+			data.start,
+		)
+		fullEntry := s.recorder.CombineEntry(data.entry, result)
+		s.store.Push(fullEntry)
+		slog.Debug("request completed (streaming body, not captured)",
+			"id", fullEntry.ID,
+			"method", fullEntry.Method,
+			"url", fullEntry.URL,
+			"status", fullEntry.StatusCode,
+		)
 		return resp
 	}
 	if truncated {
@@ -213,26 +235,88 @@ type captureCtx struct {
 	start time.Time
 }
 
-// readBodyBounded reads at most limit+1 bytes of the response body for
-// capture (limit <= 0 reads everything), then rewires resp.Body so the full
-// body still streams to the client: the captured prefix is replayed followed
-// by whatever remains in the original body. It returns truncated=true when the
-// body exceeded the capture limit (the recorder then drops the oversized body).
-func readBodyBounded(resp *http.Response, limit int64) ([]byte, bool, error) {
+// readBodyBounded reads the response body for capture, bounded to at most
+// limit+1 bytes (limit <= 0 means unlimited). It then rewires resp.Body so the
+// full body still streams to the client: the captured prefix is replayed
+// followed by whatever remains in the original body.
+//
+// It returns:
+//   - body: the captured prefix (never more than limit+1 bytes)
+//   - truncated: true when the body exceeded the capture limit (the recorder
+//     then drops the oversized body)
+//   - skipped: true when the body was left untouched because it is a streaming
+//     response (e.g. SSE) that must not be buffered — proxying would otherwise
+//     stall until the limit filled or the stream ended
+//   - err: a read failure; even on error resp.Body is rewired with whatever was
+//     consumed so the client never loses bytes
+func readBodyBounded(resp *http.Response, limit int64) (body []byte, truncated, skipped bool, err error) {
 	if resp.Body == nil {
-		return nil, false, nil
+		return nil, false, false, nil
 	}
 
-	var r io.Reader = resp.Body
-	if limit > 0 {
-		r = io.LimitReader(resp.Body, limit+1)
-	}
-	buffered, err := io.ReadAll(r)
-	if err != nil {
-		return nil, false, err
+	if isStreamingResponse(resp) {
+		return nil, false, true, nil
 	}
 
-	truncated := limit > 0 && int64(len(buffered)) == limit+1
+	buffered, err := readForCapture(resp.Body, resp.ContentLength, limit)
+	// Always rewire before returning: on error the consumed prefix must still
+	// be delivered to the client followed by the untouched remainder.
 	resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(buffered), resp.Body))
-	return buffered, truncated, nil
+	if err != nil {
+		return nil, false, false, err
+	}
+
+	if limit > 0 {
+		if int64(len(buffered)) == limit+1 {
+			return buffered, true, false, nil
+		}
+		return buffered, false, false, nil
+	}
+	if resp.ContentLength < 0 && int64(len(buffered)) == unlimitedReadSafetyCap {
+		return buffered, true, false, nil
+	}
+	return buffered, false, false, nil
+}
+
+// readForCapture reads a body for capture: at most limit+1 bytes when a limit
+// is configured (byte-bounded, so it always terminates), and for unlimited
+// mode (limit <= 0) the full body when its length is known, else up to
+// unlimitedReadSafetyCap so an endless stream cannot exhaust memory.
+func readForCapture(body io.Reader, contentLength, limit int64) ([]byte, error) {
+	if limit > 0 {
+		return io.ReadAll(io.LimitReader(body, limit+1))
+	}
+	if contentLength >= 0 {
+		return io.ReadAll(body)
+	}
+	return io.ReadAll(io.LimitReader(body, unlimitedReadSafetyCap))
+}
+
+// unlimitedReadSafetyCap bounds how much of an unknown-length (chunked) body
+// is buffered when capture is unlimited (limit <= 0). Known-length bodies are
+// still captured in full; this only guards against endless streams. A var
+// (not const) so tests can shrink it.
+var unlimitedReadSafetyCap int64 = 64 << 20 // 64 MiB
+
+// isStreamingResponse reports whether a response carries a body that is
+// intended to be consumed incrementally over time (SSE, MJPEG). Buffering such
+// a body for capture would stall the client until the capture limit fills or
+// the stream ends, so these responses are proxied without body capture.
+func isStreamingResponse(resp *http.Response) bool {
+	switch {
+	case resp.ContentLength < 0 && isStreamingContentType(resp.Header.Get("Content-Type")):
+		return true
+	}
+	return false
+}
+
+// isStreamingContentType reports whether a Content-Type denotes a
+// server-streaming body. Parameters such as "; charset=utf-8" are ignored.
+func isStreamingContentType(contentType string) bool {
+	ct := strings.ToLower(contentType)
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = ct[:i]
+	}
+	ct = strings.TrimSpace(ct)
+	return ct == "text/event-stream" || ct == "multipart/x-mixed-replace"
 }

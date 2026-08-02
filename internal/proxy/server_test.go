@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"crypto/tls"
 	"crypto/x509"
 	"io"
@@ -135,6 +136,58 @@ func TestProxyRunWithListenerMITM(t *testing.T) {
 	assert.Equal(t, "https", entry.Scheme)
 	require.NotNil(t, entry.ResponseBody)
 	assert.JSONEq(t, `{"secure":true}`, *entry.ResponseBody)
+}
+
+// TestProxyStreamsSSEWithoutStalling verifies the headline streaming fix: an
+// SSE (text/event-stream) response must reach the client immediately, not be
+// buffered by capture. The entry is still recorded but carries no body.
+func TestProxyStreamsSSEWithoutStalling(t *testing.T) {
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: hello\n\n")
+		w.(http.Flusher).Flush()
+		// Hold the stream open: the first event must arrive even though the
+		// stream never ends.
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer close(release)
+	defer upstream.Close()
+
+	s, proxyAddr := startProxy(t)
+	client := proxyClient(t, "http://"+proxyAddr, nil)
+
+	resp, err := client.Get(upstream.URL + "/events")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// The first event must be delivered promptly; a 5s cap proves capture is
+	// not stalling the stream (buffering would block until the stream ends).
+	done := make(chan string, 1)
+	go func() {
+		line, err := bufio.NewReader(resp.Body).ReadString('\n')
+		if err != nil {
+			done <- "read error: " + err.Error()
+			return
+		}
+		done <- line
+	}()
+	select {
+	case line := <-done:
+		assert.Contains(t, line, "data: hello", "first SSE event must reach the client")
+	case <-time.After(5 * time.Second):
+		t.Fatal("first SSE event not delivered within 5s: capture is buffering the stream")
+	}
+
+	entry := waitForEntry(t, s.Store())
+	require.NotNil(t, entry)
+	assert.Equal(t, http.StatusOK, entry.StatusCode)
+	assert.Equal(t, "text/event-stream", entry.ContentType)
+	assert.Nil(t, entry.ResponseBody, "streaming bodies are not captured")
 }
 
 // TestServerRunListenError verifies Run reports a bind failure instead of

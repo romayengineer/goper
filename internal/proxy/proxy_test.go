@@ -380,17 +380,150 @@ func TestHandleResponseNoUserData(t *testing.T) {
 }
 
 func TestReadBodyNilBody(t *testing.T) {
-	b, truncated, err := readBodyBounded(&http.Response{Body: nil}, 0)
+	b, truncated, skipped, err := readBodyBounded(&http.Response{Body: nil}, 0)
 	assert.NoError(t, err)
 	assert.Empty(t, b)
 	assert.False(t, truncated)
+	assert.False(t, skipped)
 }
 
 func TestReadBodyEmptyBody(t *testing.T) {
-	b, truncated, err := readBodyBounded(&http.Response{Body: io.NopCloser(strings.NewReader(""))}, 0)
+	b, truncated, skipped, err := readBodyBounded(&http.Response{Body: io.NopCloser(strings.NewReader(""))}, 0)
 	assert.NoError(t, err)
 	assert.Empty(t, b)
 	assert.False(t, truncated)
+	assert.False(t, skipped)
+}
+
+// errOnRead returns an error if any Read reaches the underlying reader; the
+// streaming-skip path must never touch the body.
+type errOnRead struct{}
+
+func (errOnRead) Read([]byte) (int, error) { return 0, errors.New("body must not be read") }
+
+func TestReadBodyStreamingContentTypeSkipped(t *testing.T) {
+	resp := &http.Response{
+		ContentLength: -1,
+		Header:        http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:          io.NopCloser(errOnRead{}),
+	}
+	got, truncated, skipped, err := readBodyBounded(resp, 1<<20)
+	assert.NoError(t, err)
+	assert.Nil(t, got)
+	assert.False(t, truncated)
+	assert.True(t, skipped, "streaming responses must be skipped, never buffered")
+}
+
+func TestReadBodyStreamingContentTypeSkippedUnlimited(t *testing.T) {
+	resp := &http.Response{
+		ContentLength: -1,
+		Header:        http.Header{"Content-Type": []string{"text/event-stream; charset=utf-8"}},
+		Body:          io.NopCloser(errOnRead{}),
+	}
+	got, truncated, skipped, err := readBodyBounded(resp, 0)
+	assert.NoError(t, err)
+	assert.Nil(t, got)
+	assert.False(t, truncated)
+	assert.True(t, skipped)
+}
+
+func TestReadBodyChunkedBoundedCaptured(t *testing.T) {
+	body := `{"chunked":true}`
+	resp := &http.Response{
+		ContentLength: -1,
+		Header:        http.Header{"Content-Type": []string{"application/json"}},
+		Body:          io.NopCloser(strings.NewReader(body)),
+	}
+	got, truncated, skipped, err := readBodyBounded(resp, 1<<20)
+	assert.NoError(t, err)
+	assert.Equal(t, body, string(got))
+	assert.False(t, truncated)
+	assert.False(t, skipped)
+
+	rest, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.Equal(t, body, string(rest), "full body must be re-served after capture")
+}
+
+func TestReadBodyErrorRestoresPartialBody(t *testing.T) {
+	prefix := `{"a":1`
+	remainder := `,"b":2}`
+	// A reader that yields `prefix`, fails once (mid-body network error), then
+	// yields the `remainder` — so the untouched rest of the body is still
+	// available after the failure.
+	body := &failAfterReader{prefix: strings.NewReader(prefix), tail: strings.NewReader(remainder)}
+	resp := &http.Response{ContentLength: -1, Body: io.NopCloser(body)}
+
+	got, truncated, skipped, err := readBodyBounded(resp, 0)
+	assert.Error(t, err)
+	assert.False(t, truncated)
+	assert.False(t, skipped)
+	_ = got
+
+	rest, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.Equal(t, prefix+remainder, string(rest), "client must receive prefix + remainder despite the read error")
+}
+
+func TestReadBodyKnownLengthUnlimited(t *testing.T) {
+	body := strings.Repeat("x", 8<<20) // 8 MiB
+	resp := &http.Response{
+		ContentLength: int64(len(body)),
+		Body:          io.NopCloser(strings.NewReader(body)),
+	}
+	got, truncated, skipped, err := readBodyBounded(resp, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, len(body), len(got))
+	assert.False(t, truncated)
+	assert.False(t, skipped)
+
+	rest, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.Equal(t, body, string(rest))
+}
+
+func TestReadBodyUnknownLengthUnlimitedCapped(t *testing.T) {
+	origCap := unlimitedReadSafetyCap
+	unlimitedReadSafetyCap = 1024
+	defer func() { unlimitedReadSafetyCap = origCap }()
+
+	// Unknown length + unlimited: captured at most the safety cap, the full
+	// body (cap + remainder) is still re-served to the client.
+	tail := "tail"
+	body := strings.Repeat("y", int(unlimitedReadSafetyCap)+len(tail))
+	resp := &http.Response{
+		ContentLength: -1,
+		Body:          io.NopCloser(strings.NewReader(body)),
+	}
+	got, truncated, skipped, err := readBodyBounded(resp, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, int(unlimitedReadSafetyCap), len(got))
+	assert.True(t, truncated, "unknown-length body beyond the safety cap must be flagged truncated")
+	assert.False(t, skipped)
+
+	rest, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.Equal(t, body, string(rest), "full body must be re-served despite the capture cap")
+}
+
+// failAfterReader yields all of prefix, then fails once (mimicking a mid-body
+// network error), then delegates to tail — so the untouched remainder of the
+// body is still readable after the failure.
+type failAfterReader struct {
+	prefix *strings.Reader
+	tail   io.Reader
+	failed bool
+}
+
+func (r *failAfterReader) Read(p []byte) (int, error) {
+	if r.prefix.Len() > 0 {
+		return r.prefix.Read(p)
+	}
+	if !r.failed {
+		r.failed = true
+		return 0, errors.New("injected read failure")
+	}
+	return r.tail.Read(p)
 }
 
 func TestHandleResponseAppliesResponseBodyLimit(t *testing.T) {
