@@ -103,23 +103,10 @@ func skipClientHelloFixed(data []byte, offset int) (extOffset, extLen int, ok bo
 	}
 	offset += 32
 
-	if offset+1 > len(data) {
+	offset, variableOK := skipClientHelloVariable(data, offset)
+	if !variableOK {
 		return 0, 0, false
 	}
-	sessionIDLen := int(data[offset])
-	offset += 1 + sessionIDLen
-
-	if offset+2 > len(data) {
-		return 0, 0, false
-	}
-	cipherSuiteLen := int(data[offset])<<8 | int(data[offset+1])
-	offset += 2 + cipherSuiteLen
-
-	if offset+1 > len(data) {
-		return 0, 0, false
-	}
-	compressionLen := int(data[offset])
-	offset += 1 + compressionLen
 
 	if offset+2 > len(data) {
 		return 0, 0, false
@@ -127,6 +114,31 @@ func skipClientHelloFixed(data []byte, offset int) (extOffset, extLen int, ok bo
 	extensionsLen := int(data[offset])<<8 | int(data[offset+1])
 
 	return offset + 2, extensionsLen, true
+}
+
+// skipClientHelloVariable consumes the variable-length session id, cipher
+// suites and compression fields, returning the offset after them, or ok=false
+// if the data is truncated.
+func skipClientHelloVariable(data []byte, offset int) (int, bool) {
+	if offset+1 > len(data) {
+		return 0, false
+	}
+	sessionIDLen := int(data[offset])
+	offset += 1 + sessionIDLen
+
+	if offset+2 > len(data) {
+		return 0, false
+	}
+	cipherSuiteLen := int(data[offset])<<8 | int(data[offset+1])
+	offset += 2 + cipherSuiteLen
+
+	if offset+1 > len(data) {
+		return 0, false
+	}
+	compressionLen := int(data[offset])
+	offset += 1 + compressionLen
+
+	return offset, true
 }
 
 // sniFromExtensions walks the TLS extensions block (data[offset:end]) looking

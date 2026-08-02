@@ -76,15 +76,9 @@ func (w *JSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
 	}
 	pretty.WriteByte('\n')
 
-	domainDir := filepath.Join(w.dir, safeDomain(entry.Host))
-	// 0o777 + chmod so the host user (not just root, who runs goper) can manage
-	// the captures in the bind-mounted output dir. MkdirAll is subject to the
-	// process umask, so chmod explicitly.
-	if err := w.fs.MkdirAll(domainDir, 0o777); err != nil {
-		return fmt.Errorf("create output dir %s: %w", domainDir, err)
-	}
-	if err := w.fs.Chmod(domainDir, 0o777); err != nil {
-		return fmt.Errorf("chmod output dir %s: %w", domainDir, err)
+	domainDir, err := ensureOutputDir(w.fs, w.dir, entry.Host)
+	if err != nil {
+		return err
 	}
 
 	path := filepath.Join(domainDir, string(entry.ID)+".json")
@@ -111,26 +105,14 @@ func newNDJSONBodyWriter(dir string, fs FileSystem) *NDJSONBodyWriter {
 }
 
 func (w *NDJSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
-	body, ok := jsonBody(entry)
+	line, ok := compactJSON(entry)
 	if !ok {
 		return nil
 	}
 
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, body); err != nil {
-		return nil // not valid JSON, skip
-	}
-	compact.WriteByte('\n')
-
-	domainDir := filepath.Join(w.dir, safeDomain(entry.Host))
-	// 0o777 + chmod so the host user (not just root, who runs goper) can manage
-	// the captures in the bind-mounted output dir. MkdirAll is subject to the
-	// process umask, so chmod explicitly.
-	if err := w.fs.MkdirAll(domainDir, 0o777); err != nil {
-		return fmt.Errorf("create output dir %s: %w", domainDir, err)
-	}
-	if err := w.fs.Chmod(domainDir, 0o777); err != nil {
-		return fmt.Errorf("chmod output dir %s: %w", domainDir, err)
+	domainDir, err := ensureOutputDir(w.fs, w.dir, entry.Host)
+	if err != nil {
+		return err
 	}
 	path := filepath.Join(domainDir, "responses.jsonl")
 
@@ -143,10 +125,42 @@ func (w *NDJSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	if _, err := f.Write(compact.Bytes()); err != nil {
+	if _, err := f.Write(line); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
+}
+
+// ensureOutputDir creates the per-domain output directory with permissive
+// permissions so the host user (not just root, who runs goper) can manage the
+// captures in the bind-mounted output dir. MkdirAll is subject to the process
+// umask, so chmod explicitly.
+func ensureOutputDir(fs FileSystem, dir, host string) (string, error) {
+	domainDir := filepath.Join(dir, safeDomain(host))
+	if err := fs.MkdirAll(domainDir, 0o777); err != nil {
+		return "", fmt.Errorf("create output dir %s: %w", domainDir, err)
+	}
+	if err := fs.Chmod(domainDir, 0o777); err != nil {
+		return "", fmt.Errorf("chmod output dir %s: %w", domainDir, err)
+	}
+	return domainDir, nil
+}
+
+// compactJSON compacts the entry body into a single newline-terminated line;
+// ok is false when the response is not JSON.
+func compactJSON(entry *capture.CapturedEntry) ([]byte, bool) {
+	body, ok := jsonBody(entry)
+	if !ok {
+		return nil, false
+	}
+
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, body); err != nil {
+		return nil, false // not valid JSON, skip
+	}
+	compact.WriteByte('\n')
+
+	return compact.Bytes(), true
 }
 
 // safeDomain derives a safe single-segment directory name from a request

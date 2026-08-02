@@ -66,19 +66,8 @@ func run(cfg *config.Config) int {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	go func() {
-		if err := proxyServer.Run(); err != nil {
-			slog.Error("proxy server error", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	go func() {
-		if err := apiServer.Run(); err != nil {
-			slog.Error("API server error", "error", err)
-			os.Exit(1)
-		}
-	}()
+	go runServer("proxy server error", proxyServer)
+	go runServer("API server error", apiServer)
 
 	slog.Info("ready",
 		"proxy", cfg.Port,
@@ -97,6 +86,19 @@ func run(cfg *config.Config) int {
 
 	slog.Info("stopped")
 	return 0
+}
+
+// serverRunner is satisfied by both the proxy and API servers.
+type serverRunner interface {
+	Run() error
+}
+
+// runServer runs a server in a goroutine, exiting the process on failure.
+func runServer(name string, server serverRunner) {
+	if err := server.Run(); err != nil {
+		slog.Error(name, "error", err)
+		os.Exit(1)
+	}
 }
 
 // setupTransparentIfEnabled installs iptables rules for transparent mode when
@@ -223,18 +225,26 @@ func parseConfig(args []string) (*config.Config, error) {
 
 // validateConfig checks output format and capture regexes after flag parsing.
 func validateConfig(cfg *config.Config) error {
-	if cfg.OutputFormat != "json" && cfg.OutputFormat != "ndjson" {
+	if !validOutputFormat(cfg.OutputFormat) {
 		return fmt.Errorf("invalid --output-format: must be 'json' or 'ndjson'")
 	}
-	if cfg.CaptureInclude != "" {
-		if _, err := regexp.Compile(cfg.CaptureInclude); err != nil {
-			return fmt.Errorf("invalid --capture-include regex: %w", err)
-		}
+	if err := validateCaptureRegex("--capture-include", cfg.CaptureInclude); err != nil {
+		return err
 	}
-	if cfg.CaptureExclude != "" {
-		if _, err := regexp.Compile(cfg.CaptureExclude); err != nil {
-			return fmt.Errorf("invalid --capture-exclude regex: %w", err)
-		}
+	return validateCaptureRegex("--capture-exclude", cfg.CaptureExclude)
+}
+
+func validOutputFormat(f string) bool {
+	return f == "json" || f == "ndjson"
+}
+
+// validateCaptureRegex compiles a capture filter regex, skipping empty ones.
+func validateCaptureRegex(name, pattern string) error {
+	if pattern == "" {
+		return nil
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("invalid %s regex: %w", name, err)
 	}
 	return nil
 }

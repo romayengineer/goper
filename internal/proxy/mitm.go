@@ -102,11 +102,7 @@ func persistCA(ca *CA, dir, certPath, keyPath string) error {
 	if err != nil {
 		return err
 	}
-	keyBytes, err := x509.MarshalECPrivateKey(ca.Key.(*ecdsa.PrivateKey))
-	if err != nil {
-		return fmt.Errorf("marshal CA key: %w", err)
-	}
-	keyPEM, err := pemEncode(keyBytes, "EC PRIVATE KEY")
+	keyPEM, err := encodeCAKeyPEM(ca)
 	if err != nil {
 		return err
 	}
@@ -119,6 +115,15 @@ func persistCA(ca *CA, dir, certPath, keyPath string) error {
 	}
 
 	return nil
+}
+
+// encodeCAKeyPEM marshals the CA private key to PEM.
+func encodeCAKeyPEM(ca *CA) ([]byte, error) {
+	keyBytes, err := x509.MarshalECPrivateKey(ca.Key.(*ecdsa.PrivateKey))
+	if err != nil {
+		return nil, fmt.Errorf("marshal CA key: %w", err)
+	}
+	return pemEncode(keyBytes, "EC PRIVATE KEY")
 }
 
 // loadCA reads and parses a previously persisted CA key pair from disk.
@@ -178,13 +183,7 @@ func NewCertCache(ca CAProvider) *CertCache {
 }
 
 func (cc *CertCache) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	host := hello.ServerName
-	if host == "" && hello.Conn != nil {
-		host = hello.Conn.LocalAddr().String()
-	}
-	if host == "" {
-		host = "localhost"
-	}
+	host := hostForHello(hello)
 
 	cc.mu.RLock()
 	cert, ok := cc.certs[host]
@@ -196,6 +195,25 @@ func (cc *CertCache) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificat
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 
+	return cc.certOrGenerate(host)
+}
+
+// hostForHello resolves the certificate host from the ClientHello, falling
+// back to the connection's local address and finally "localhost".
+func hostForHello(hello *tls.ClientHelloInfo) string {
+	host := hello.ServerName
+	if host == "" && hello.Conn != nil {
+		host = hello.Conn.LocalAddr().String()
+	}
+	if host == "" {
+		host = "localhost"
+	}
+	return host
+}
+
+// certOrGenerate returns the cached certificate for host, generating it on
+// first use. The caller must hold the write lock.
+func (cc *CertCache) certOrGenerate(host string) (*tls.Certificate, error) {
 	if cert, ok := cc.certs[host]; ok {
 		return cert, nil
 	}

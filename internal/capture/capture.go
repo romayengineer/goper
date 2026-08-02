@@ -55,7 +55,7 @@ func headersToMap(h http.Header) map[string]string {
 	m := make(map[string]string, len(h))
 	for k, v := range h {
 		lower := strings.ToLower(k)
-		if lower == "authorization" || lower == "cookie" || lower == "set-cookie" || lower == "proxy-authorization" {
+		if redactHeader(lower) {
 			m[k] = "***REDACTED***"
 			continue
 		}
@@ -66,6 +66,12 @@ func headersToMap(h http.Header) map[string]string {
 		}
 	}
 	return m
+}
+
+// redactHeader reports whether a header carries credentials that must not be
+// persisted in captured entries.
+func redactHeader(key string) bool {
+	return key == "authorization" || key == "cookie" || key == "set-cookie" || key == "proxy-authorization"
 }
 
 func CaptureRequest(req *http.Request) CapturedEntry {
