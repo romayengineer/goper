@@ -82,14 +82,8 @@ func (c *closeNotifyConn) Close() error {
 // runTransparent accepts connections on l and transparently proxies them,
 // peeking each to decide between plain HTTP and TLS MITM.
 func (s *Server) runTransparent(l net.Listener) error {
-	if s.resolver == nil {
-		s.resolver = defaultResolver()
-	}
-	if s.resolver == nil {
+	if !s.initTransparent() {
 		return errTransparentUnsupported
-	}
-	if s.peeker == nil {
-		s.peeker = DefaultSNIPeeker{}
 	}
 
 	slog.Info("transparent proxy running",
@@ -100,8 +94,7 @@ func (s *Server) runTransparent(l net.Listener) error {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
+			if acceptRetryable(err) {
 				time.Sleep(10 * time.Millisecond)
 				continue
 			}
@@ -111,16 +104,35 @@ func (s *Server) runTransparent(l net.Listener) error {
 	}
 }
 
+// initTransparent defaults the resolver and peeker if unset. It reports false
+// when no SNI resolver is available, meaning transparent mode is unsupported.
+func (s *Server) initTransparent() bool {
+	if s.resolver == nil {
+		s.resolver = defaultResolver()
+	}
+	if s.resolver == nil {
+		return false
+	}
+	if s.peeker == nil {
+		s.peeker = DefaultSNIPeeker{}
+	}
+	return true
+}
+
+// acceptRetryable reports whether a listener error is transient (a timeout),
+// in which case the accept loop should retry instead of failing.
+func acceptRetryable(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
 func (s *Server) handleTransparentConn(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	// Ensure defaults even if invoked outside runTransparent (mirrors the
 	// initialization runTransparent performs for its accept loop).
-	if s.resolver == nil {
-		s.resolver = defaultResolver()
-	}
-	if s.peeker == nil {
-		s.peeker = DefaultSNIPeeker{}
+	if !s.initTransparent() {
+		return
 	}
 
 	if err := conn.SetReadDeadline(time.Now().Add(peekTimeout)); err != nil {

@@ -178,20 +178,7 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		// streams to the client immediately. ContentLength is preserved (still
 		// negative for chunked/close-delimited framing) and the entry is
 		// captured without a body.
-		result := s.recorder.CaptureResponse(
-			resp.StatusCode,
-			resp.Header,
-			nil,
-			data.start,
-		)
-		fullEntry := s.recorder.CombineEntry(data.entry, result)
-		s.store.Push(fullEntry)
-		slog.Debug("request completed (streaming body, not captured)",
-			"id", fullEntry.ID,
-			"method", fullEntry.Method,
-			"url", fullEntry.URL,
-			"status", fullEntry.StatusCode,
-		)
+		s.captureStreaming(data, resp)
 		return resp
 	}
 	if truncated {
@@ -203,13 +190,29 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		resp.ContentLength = int64(len(bodyBytes))
 	}
 
-	result := s.recorder.CaptureResponse(
-		resp.StatusCode,
-		resp.Header,
-		bodyBytes,
-		data.start,
-	)
+	s.captureResponse(data, resp, bodyBytes)
 
+	return resp
+}
+
+// captureStreaming records a response whose body was left untouched because it
+// is streaming (SSE etc.), storing the entry without a body.
+func (s *Server) captureStreaming(data captureCtx, resp *http.Response) {
+	result := s.recorder.CaptureResponse(resp.StatusCode, resp.Header, nil, data.start)
+	fullEntry := s.recorder.CombineEntry(data.entry, result)
+	s.store.Push(fullEntry)
+	slog.Debug("request completed (streaming body, not captured)",
+		"id", fullEntry.ID,
+		"method", fullEntry.Method,
+		"url", fullEntry.URL,
+		"status", fullEntry.StatusCode,
+	)
+}
+
+// captureResponse records a completed response into the store and fans it out
+// to the configured outputs.
+func (s *Server) captureResponse(data captureCtx, resp *http.Response, bodyBytes []byte) {
+	result := s.recorder.CaptureResponse(resp.StatusCode, resp.Header, bodyBytes, data.start)
 	fullEntry := s.recorder.CombineEntry(data.entry, result)
 	s.store.Push(fullEntry)
 
@@ -226,8 +229,6 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		"status", fullEntry.StatusCode,
 		"duration_ms", fullEntry.DurationMs,
 	)
-
-	return resp
 }
 
 type captureCtx struct {
@@ -266,16 +267,17 @@ func readBodyBounded(resp *http.Response, limit int64) (body []byte, truncated, 
 		return nil, false, false, err
 	}
 
+	return buffered, captureExceededLimit(resp, buffered, limit), false, nil
+}
+
+// captureExceededLimit reports whether the captured prefix hit the capture
+// limit, meaning the body was cut off. Unlimited capture still caps the buffer
+// at unlimitedReadSafetyCap for chunked/close-delimited bodies.
+func captureExceededLimit(resp *http.Response, buffered []byte, limit int64) bool {
 	if limit > 0 {
-		if int64(len(buffered)) == limit+1 {
-			return buffered, true, false, nil
-		}
-		return buffered, false, false, nil
+		return int64(len(buffered)) == limit+1
 	}
-	if resp.ContentLength < 0 && int64(len(buffered)) == unlimitedReadSafetyCap {
-		return buffered, true, false, nil
-	}
-	return buffered, false, false, nil
+	return resp.ContentLength < 0 && int64(len(buffered)) == unlimitedReadSafetyCap
 }
 
 // readForCapture reads a body for capture: at most limit+1 bytes when a limit

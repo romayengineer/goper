@@ -139,22 +139,20 @@ func (h *Handler) streamLoop(ctx context.Context, w http.ResponseWriter, flusher
 	ping := time.NewTicker(30 * time.Second)
 	defer ping.Stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ping.C:
-			if !writeSSEPing(w, flusher) {
-				return
-			}
-		case entry, ok := <-ch:
-			if !ok {
-				return
-			}
-			if !writeSSE(w, flusher, entry) {
-				return
-			}
-		}
+	for h.streamSelect(ctx, w, flusher, ping, ch) {
+	}
+}
+
+// streamSelect handles one event from the live stream and reports whether the
+// connection is still healthy.
+func (h *Handler) streamSelect(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, ping *time.Ticker, ch <-chan *capture.CapturedEntry) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-ping.C:
+		return writeSSEPing(w, flusher)
+	case entry, ok := <-ch:
+		return ok && writeSSE(w, flusher, entry)
 	}
 }
 
@@ -264,6 +262,17 @@ var hopByHopHeaders = map[string]bool{
 	"content-length":    true,
 }
 
+// copyReplayHeaders copies captured request headers onto a replay request,
+// skipping hop-by-hop headers.
+func copyReplayHeaders(req *http.Request, headers map[string]string) {
+	for k, v := range headers {
+		if hopByHopHeaders[strings.ToLower(k)] {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+}
+
 // ReplayRequest re-sends a captured request to its original URL using the
 // stored method, headers and body, and returns the fresh response. Useful for
 // re-executing an API call after a fix, or for testing idempotent endpoints.
@@ -285,12 +294,7 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	for k, v := range entry.RequestHeaders {
-		if hopByHopHeaders[strings.ToLower(k)] {
-			continue
-		}
-		req.Header.Set(k, v)
-	}
+	copyReplayHeaders(req, entry.RequestHeaders)
 
 	client := replayClient
 	start := time.Now()

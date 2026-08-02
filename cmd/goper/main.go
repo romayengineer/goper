@@ -54,10 +54,8 @@ func run(cfg *config.Config) int {
 
 	var iptMgr iptables.RuleManager = iptables.NewManager(cfg.ProxyPort(), nil)
 
-	if cfg.Transparent {
-		if code := setupTransparent(iptMgr); code != 0 {
-			return code
-		}
+	if code := setupTransparentIfEnabled(cfg, iptMgr); code != 0 {
+		return code
 	}
 
 	caPEM := readCAPEM(cfg)
@@ -101,9 +99,12 @@ func run(cfg *config.Config) int {
 	return 0
 }
 
-// setupTransparent verifies privileges and installs iptables rules for
-// transparent mode. Returns a non-zero exit code on failure.
-func setupTransparent(iptMgr iptables.RuleManager) int {
+// setupTransparentIfEnabled installs iptables rules for transparent mode when
+// enabled. Returns a non-zero exit code on failure.
+func setupTransparentIfEnabled(cfg *config.Config, iptMgr iptables.RuleManager) int {
+	if !cfg.Transparent {
+		return 0
+	}
 	if err := checkTransparentPrivileges(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
