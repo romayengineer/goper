@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -34,38 +35,7 @@ func NewHandler(store capture.Store, caPEM []byte) *Handler {
 }
 
 func (h *Handler) ListRequests(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-
-	opts := capture.ListOpts{}
-
-	if since := q.Get("since"); since != "" {
-		if t, err := time.Parse(time.RFC3339, since); err == nil {
-			opts.Since = t
-		}
-	}
-	if method := q.Get("method"); method != "" {
-		opts.Method = method
-	}
-	if statusStr := q.Get("status"); statusStr != "" {
-		if status, err := strconv.Atoi(statusStr); err == nil {
-			opts.Status = status
-		}
-	}
-	if url := q.Get("url"); url != "" {
-		opts.URL = url
-	}
-	if limitStr := q.Get("limit"); limitStr != "" {
-		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
-			opts.Limit = limit
-		}
-	}
-	if offsetStr := q.Get("offset"); offsetStr != "" {
-		if offset, err := strconv.Atoi(offsetStr); err == nil && offset > 0 {
-			opts.Offset = offset
-		}
-	}
-
-	entries := h.store.List(opts)
+	entries := h.store.List(listOptsFromQuery(r.URL.Query()))
 	if entries == nil {
 		entries = []*capture.CapturedEntry{}
 	}
@@ -74,6 +44,51 @@ func (h *Handler) ListRequests(w http.ResponseWriter, r *http.Request) {
 		"count": len(entries),
 		"data":  entries,
 	})
+}
+
+// listOptsFromQuery parses the /api/requests query string into list filters.
+func listOptsFromQuery(q url.Values) capture.ListOpts {
+	return capture.ListOpts{
+		Since:  parseTimeQuery(q, "since"),
+		Method: q.Get("method"),
+		Status: parseIntQuery(q, "status"),
+		URL:    q.Get("url"),
+		Limit:  parsePositiveIntQuery(q, "limit"),
+		Offset: parsePositiveIntQuery(q, "offset"),
+	}
+}
+
+// parseTimeQuery reads an RFC3339 timestamp query param, returning the zero
+// time when absent or unparsable.
+func parseTimeQuery(q url.Values, key string) time.Time {
+	raw := q.Get(key)
+	if raw == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t
+	}
+	return time.Time{}
+}
+
+// parseIntQuery reads an integer query param, returning 0 when absent or
+// unparsable.
+func parseIntQuery(q url.Values, key string) int {
+	n, err := strconv.Atoi(q.Get(key))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// parsePositiveIntQuery reads an integer query param, returning 0 when absent,
+// unparsable, or not strictly positive.
+func parsePositiveIntQuery(q url.Values, key string) int {
+	n, err := strconv.Atoi(q.Get(key))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func (h *Handler) GetRequest(w http.ResponseWriter, r *http.Request) {
