@@ -21,7 +21,7 @@ type CommandRunner interface {
 type OSRunner struct{}
 
 func (OSRunner) Run(name string, args ...string) ([]byte, error) {
-	return exec.Command(name, args...).CombinedOutput()
+	return exec.Command(name, args...).CombinedOutput() // #nosec G204 -- the rule specs are fixed in NewManager; name/args are not user-controlled
 }
 
 type Manager struct {

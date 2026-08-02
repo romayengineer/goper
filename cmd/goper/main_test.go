@@ -120,7 +120,7 @@ func TestRunNewServerError(t *testing.T) {
 	// CA dir under a regular file: LoadOrCreateCA fails → run returns 1
 	// before starting any servers or waiting on signals.
 	blocker := filepath.Join(t.TempDir(), "blocker")
-	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644)) // #nosec G306 -- test fixture; not sensitive
 
 	cfg := config.Default()
 	cfg.CADir = filepath.Join(blocker, "sub")
@@ -203,7 +203,7 @@ func TestCheckTransparentPrivileges(t *testing.T) {
 
 func TestReadCAPEMFound(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("PEMDATA"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("PEMDATA"), 0o644)) // #nosec G306 -- test CA cert; public by design
 
 	cfg := config.Default()
 	cfg.CADir = dir

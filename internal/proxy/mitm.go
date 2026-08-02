@@ -77,11 +77,11 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 	keyPath := filepath.Join(dir, "ca-key.pem")
 
 	if _, err := os.Stat(certPath); err == nil {
-		certPEM, err := os.ReadFile(certPath)
+		certPEM, err := os.ReadFile(certPath) // #nosec G304 -- path derives from the configured CA dir
 		if err != nil {
 			return nil, fmt.Errorf("read CA cert: %w", err)
 		}
-		keyPEM, err := os.ReadFile(keyPath)
+		keyPEM, err := os.ReadFile(keyPath) // #nosec G304 -- path derives from the configured CA dir
 		if err != nil {
 			return nil, fmt.Errorf("read CA key: %w", err)
 		}
@@ -129,7 +129,7 @@ func LoadOrCreateCA(dir string) (*CA, error) {
 		return nil, err
 	}
 
-	if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
+	if err := os.WriteFile(certPath, certPEM, 0644); err != nil { // #nosec G306 -- the CA certificate is public: it must be readable so it can be served via the API and installed in browsers
 		return nil, fmt.Errorf("write CA cert: %w", err)
 	}
 	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {

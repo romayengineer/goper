@@ -89,7 +89,8 @@ func TestServerCORSPreflightWithHeaders(t *testing.T) {
 }
 
 func TestServerImplementsRunnable(t *testing.T) {
-	var _ Runnable = NewServer(0, &mockStore{}, nil)
+	// NewServer's return type already guarantees the Runnable contract.
+	_ = NewServer(0, &mockStore{}, nil)
 }
 
 func TestServerServesUI(t *testing.T) {

@@ -112,7 +112,7 @@ func (s *Server) runTransparent(l net.Listener) error {
 }
 
 func (s *Server) handleTransparentConn(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Ensure defaults even if invoked outside runTransparent (mirrors the
 	// initialization runTransparent performs for its accept loop).

@@ -195,7 +195,7 @@ func (h *Handler) GetCA(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // replayMaxBody caps how much of a replayed response is returned to the
@@ -236,7 +236,7 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 		body = strings.NewReader(*entry.RequestBody)
 	}
 
-	req, err := http.NewRequest(entry.Method, entry.URL, body)
+	req, err := http.NewRequest(entry.Method, entry.URL, body) // #nosec G704 -- replay is an explicit feature: it resends a captured request to its stored URL
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -250,12 +250,12 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 
 	client := replayClient
 	start := time.Now()
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) // #nosec G704 -- replay is an explicit feature: it resends a captured request to its stored URL
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, replayMaxBody))
 	if err != nil {

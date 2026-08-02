@@ -125,41 +125,46 @@ func (rb *RingBuffer) List(opts ListOpts) []*CapturedEntry {
 		return nil
 	}
 
-	var result []*CapturedEntry
+	result := make([]*CapturedEntry, 0, rb.count)
 	for i := 0; i < rb.capacity; i++ {
 		idx := (rb.head + i) % rb.capacity
 		entry := rb.buffer[idx]
-		if entry == nil {
-			continue
+		if entry != nil && opts.matches(entry) {
+			result = append(result, entry)
 		}
-
-		if !opts.Since.IsZero() && entry.Timestamp.Before(opts.Since) {
-			continue
-		}
-		if opts.Method != "" && entry.Method != opts.Method {
-			continue
-		}
-		if opts.Status > 0 && entry.StatusCode != opts.Status {
-			continue
-		}
-		if opts.URL != "" && entry.URL != opts.URL {
-			continue
-		}
-
-		result = append(result, entry)
 	}
 
+	return paginate(result, opts)
+}
+
+// matches reports whether an entry satisfies the List filters.
+func (opts ListOpts) matches(entry *CapturedEntry) bool {
+	if !opts.Since.IsZero() && entry.Timestamp.Before(opts.Since) {
+		return false
+	}
+	if opts.Method != "" && entry.Method != opts.Method {
+		return false
+	}
+	if opts.Status > 0 && entry.StatusCode != opts.Status {
+		return false
+	}
+	if opts.URL != "" && entry.URL != opts.URL {
+		return false
+	}
+	return true
+}
+
+// paginate applies offset/limit pagination to a filtered result.
+func paginate(result []*CapturedEntry, opts ListOpts) []*CapturedEntry {
 	if opts.Offset > 0 {
 		if opts.Offset >= len(result) {
-			result = nil // offset past the end: empty page, not the whole list
-		} else {
-			result = result[opts.Offset:]
+			return nil // offset past the end: empty page, not the whole list
 		}
+		result = result[opts.Offset:]
 	}
 	if opts.Limit > 0 && opts.Limit < len(result) {
 		result = result[:opts.Limit]
 	}
-
 	return result
 }
 

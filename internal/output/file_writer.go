@@ -45,7 +45,7 @@ func (OSFileSystem) WriteFile(path string, data []byte, perm os.FileMode) error 
 }
 
 func (OSFileSystem) OpenFile(path string, flag int, perm os.FileMode) (io.WriteCloser, error) {
-	return os.OpenFile(path, flag, perm)
+	return os.OpenFile(path, flag, perm) // #nosec G304 -- path derives from the configured output dir plus a sanitized domain segment
 }
 
 // JSONBodyWriter writes each JSON response body to its own pretty-printed
@@ -141,7 +141,7 @@ func (w *NDJSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(compact.Bytes()); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)

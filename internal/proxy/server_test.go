@@ -84,7 +84,7 @@ func TestProxyRunWithListenerHTTP(t *testing.T) {
 
 	resp, err := client.Get(upstream.URL + "/api/data")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestProxyRunWithListenerMITM(t *testing.T) {
 
 	resp, err := client.Get(upstream.URL + "/secure")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestProxyStreamsSSEWithoutStalling(t *testing.T) {
 
 	resp, err := client.Get(upstream.URL + "/events")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// The first event must be delivered promptly; a 5s cap proves capture is
@@ -194,9 +194,9 @@ func TestProxyStreamsSSEWithoutStalling(t *testing.T) {
 // hanging or exiting silently. The blocker binds ALL interfaces (":0") so the
 // second bind fails deterministically on both Linux and macOS/BSD.
 func TestServerRunListenError(t *testing.T) {
-	blocker, err := net.Listen("tcp", ":0")
+	blocker, err := net.Listen("tcp", ":0") // #nosec G102 -- deliberate all-interface bind for the conflict test
 	require.NoError(t, err)
-	defer blocker.Close()
+	defer func() { _ = blocker.Close() }()
 	port := blocker.Addr().(*net.TCPAddr).Port
 
 	cfg := testConfig(t)
@@ -220,7 +220,7 @@ func TestRunTransparentUnsupportedOnNonLinux(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	err = s.RunWithListener(ln)
 	require.Error(t, err)
@@ -244,7 +244,7 @@ func TestProxyRunWithListenerRejectsBadURL(t *testing.T) {
 
 	conn, err := net.Dial("tcp", proxyAddr)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_, err = conn.Write([]byte("GET http://127.0.0.1:1/%zz HTTP/1.1\r\nHost: x\r\n\r\n"))
 	require.NoError(t, err)

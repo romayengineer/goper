@@ -303,11 +303,7 @@ var unlimitedReadSafetyCap int64 = 64 << 20 // 64 MiB
 // a body for capture would stall the client until the capture limit fills or
 // the stream ends, so these responses are proxied without body capture.
 func isStreamingResponse(resp *http.Response) bool {
-	switch {
-	case resp.ContentLength < 0 && isStreamingContentType(resp.Header.Get("Content-Type")):
-		return true
-	}
-	return false
+	return resp.ContentLength < 0 && isStreamingContentType(resp.Header.Get("Content-Type"))
 }
 
 // isStreamingContentType reports whether a Content-Type denotes a

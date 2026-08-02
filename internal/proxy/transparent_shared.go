@@ -68,8 +68,7 @@ func parseClientHello(data []byte) *ClientHello {
 		return nil
 	}
 
-	handshakeType := data[0]
-	if handshakeType != 1 {
+	if data[0] != 1 {
 		return nil
 	}
 
@@ -114,34 +113,54 @@ func parseClientHello(data []byte) *ClientHello {
 		end = len(data)
 	}
 
+	if sni := sniFromExtensions(data, offset, end); sni != "" {
+		return &ClientHello{ServerName: sni}
+	}
+	return nil
+}
+
+// sniFromExtensions walks the TLS extensions block (data[offset:end]) looking
+// for the SNI (server_name, type 0) extension and returns its first hostname,
+// or "" if none is present.
+func sniFromExtensions(data []byte, offset, end int) string {
 	for offset+4 <= end {
 		extType := uint16(data[offset])<<8 | uint16(data[offset+1])
 		extLen := int(data[offset+2])<<8 | int(data[offset+3])
 		offset += 4
 
 		if extType == 0 && extLen > 5 && offset+extLen <= end {
-			listLen := int(data[offset])<<8 | int(data[offset+1])
-			nameOffset := offset + 2
-			nameEnd := nameOffset + listLen
-			if nameEnd > offset+extLen {
-				nameEnd = offset + extLen
-			}
-
-			for nameOffset+3 <= nameEnd {
-				nameType := data[nameOffset]
-				nameLen := int(data[nameOffset+1])<<8 | int(data[nameOffset+2])
-				nameOffset += 3
-
-				if nameType == 0 && nameLen > 0 && nameOffset+nameLen <= nameEnd {
-					sni := string(data[nameOffset : nameOffset+nameLen])
-					return &ClientHello{ServerName: sni}
-				}
-				nameOffset += nameLen
+			if name := sniFromServerNameList(data, offset, end, extLen); name != "" {
+				return name
 			}
 		}
 
 		offset += extLen
 	}
 
-	return nil
+	return ""
+}
+
+// sniFromServerNameList walks the ServerNameList inside an SNI extension
+// (starting at data[offset], bounded by end and the extension length) and
+// returns the first DNS hostname entry, or "" if none is present.
+func sniFromServerNameList(data []byte, offset, end, extLen int) string {
+	listLen := int(data[offset])<<8 | int(data[offset+1])
+	nameOffset := offset + 2
+	nameEnd := nameOffset + listLen
+	if nameEnd > offset+extLen {
+		nameEnd = offset + extLen
+	}
+
+	for nameOffset+3 <= nameEnd {
+		nameType := data[nameOffset]
+		nameLen := int(data[nameOffset+1])<<8 | int(data[nameOffset+2])
+		nameOffset += 3
+
+		if nameType == 0 && nameLen > 0 && nameOffset+nameLen <= nameEnd {
+			return string(data[nameOffset : nameOffset+nameLen])
+		}
+		nameOffset += nameLen
+	}
+
+	return ""
 }

@@ -34,8 +34,8 @@ var _ OriginalDstResolver = mockResolver{}
 
 func TestSingleConnListenerServesConnOnce(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	l := &singleConnListener{conn: server, addr: server.LocalAddr(), closed: make(chan struct{})}
 
@@ -46,8 +46,8 @@ func TestSingleConnListenerServesConnOnce(t *testing.T) {
 
 func TestSingleConnListenerSecondAcceptBlocksUntilClose(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	l := &singleConnListener{conn: server, addr: server.LocalAddr(), closed: make(chan struct{})}
 
@@ -86,8 +86,8 @@ func TestSingleConnListenerCloseIdempotent(t *testing.T) {
 
 func TestSingleConnListenerAddr(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	addr := server.LocalAddr()
 	l := &singleConnListener{conn: server, addr: addr, closed: make(chan struct{})}
@@ -96,8 +96,8 @@ func TestSingleConnListenerAddr(t *testing.T) {
 
 func TestBufferedConnReadsBufferedBytesFirst(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	go func() {
 		_, _ = client.Write([]byte("hello"))
@@ -123,7 +123,7 @@ func TestBufferedConnReadsBufferedBytesFirst(t *testing.T) {
 
 func TestCloseNotifyConnCallsOnCloseOnce(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	calls := 0
 	cn := &closeNotifyConn{Conn: server, onClose: func() { calls++ }}
@@ -153,7 +153,7 @@ func TestHandleTransparentConnHTTPOverLoopback(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		conn, err := ln.Accept()
@@ -165,7 +165,7 @@ func TestHandleTransparentConnHTTPOverLoopback(t *testing.T) {
 
 	client, err := net.Dial("tcp", ln.Addr().String())
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	targetAddr := strings.TrimPrefix(target.URL, "http://")
 	_, err = fmt.Fprintf(client, "GET /hello HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", targetAddr)
@@ -174,7 +174,7 @@ func TestHandleTransparentConnHTTPOverLoopback(t *testing.T) {
 	_ = client.SetReadDeadline(time.Now().Add(10 * time.Second))
 	resp, err := http.ReadResponse(bufio.NewReader(client), nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -197,7 +197,7 @@ func TestHandleTransparentConnTLSPeekFailure(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		conn, err := ln.Accept()
@@ -242,7 +242,7 @@ func TestHandleTransparentConnTLSOverLoopback(t *testing.T) {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		conn, err := ln.Accept()
@@ -259,7 +259,7 @@ func TestHandleTransparentConnTLSOverLoopback(t *testing.T) {
 
 	raw, err := net.Dial("tcp", ln.Addr().String())
 	require.NoError(t, err)
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 
 	client := tls.Client(raw, &tls.Config{RootCAs: clientPool, ServerName: "localhost"})
 	require.NoError(t, client.Handshake())
@@ -270,7 +270,7 @@ func TestHandleTransparentConnTLSOverLoopback(t *testing.T) {
 	_ = client.SetReadDeadline(time.Now().Add(10 * time.Second))
 	resp, err := http.ReadResponse(bufio.NewReader(client), nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)

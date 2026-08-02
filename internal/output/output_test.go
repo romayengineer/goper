@@ -146,7 +146,7 @@ func TestOSFileSystemRealOperations(t *testing.T) {
 
 	path := filepath.Join(dir, "f.txt")
 	require.NoError(t, fs.WriteFile(path, []byte("one"), 0o644))
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- test reading a known fixture path
 	require.NoError(t, err)
 	assert.Equal(t, "one", string(content))
 
@@ -155,7 +155,7 @@ func TestOSFileSystemRealOperations(t *testing.T) {
 	_, err = f.Write([]byte("two"))
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
-	content, err = os.ReadFile(path)
+	content, err = os.ReadFile(path) // #nosec G304 -- test reading a known fixture path
 	require.NoError(t, err)
 	assert.Equal(t, "onetwo", string(content))
 
@@ -179,7 +179,7 @@ func TestNewJSONBodyWriterRealFS(t *testing.T) {
 	require.NoError(t, w.WriteEntry(entry))
 
 	path := filepath.Join(dir, "api.example.com", "abc.json")
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- test reading a known fixture path
 	require.NoError(t, err)
 	assert.Contains(t, string(content), `"ok": true`, "expected pretty-printed JSON")
 }
@@ -200,7 +200,7 @@ func TestNewNDJSONBodyWriterRealFS(t *testing.T) {
 	}
 
 	path := filepath.Join(dir, "api.example.com", "responses.jsonl")
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- test reading a known fixture path
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
 	require.Len(t, lines, 2, "two entries → two jsonl lines")

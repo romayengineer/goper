@@ -176,8 +176,8 @@ func TestCertCacheImplementsCertStore(t *testing.T) {
 
 func TestLoadOrCreateCAInvalidPEM(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("not a pem"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-key.pem"), []byte("also not a pem"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("not a pem"), 0o644))     // #nosec G306 -- test fixture; not sensitive
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-key.pem"), []byte("also not a pem"), 0o644)) // #nosec G306 -- test fixture; not sensitive
 
 	_, err := LoadOrCreateCA(dir)
 	require.Error(t, err)
@@ -186,7 +186,7 @@ func TestLoadOrCreateCAInvalidPEM(t *testing.T) {
 
 func TestLoadOrCreateCAMissingKey(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("cert"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("cert"), 0o644)) // #nosec G306 -- test fixture; not sensitive
 
 	_, err := LoadOrCreateCA(dir)
 	require.Error(t, err)
@@ -196,7 +196,7 @@ func TestLoadOrCreateCAMissingKey(t *testing.T) {
 func TestLoadOrCreateCAMkdirError(t *testing.T) {
 	// A file where the CA directory would have to be created: MkdirAll fails.
 	blocker := filepath.Join(t.TempDir(), "blocker")
-	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644)) // #nosec G306 -- test fixture; not sensitive
 
 	_, err := LoadOrCreateCA(filepath.Join(blocker, "sub"))
 	require.Error(t, err)
@@ -206,8 +206,8 @@ func TestLoadOrCreateCAMkdirError(t *testing.T) {
 func TestLoadOrCreateCARejectsCorruptCert(t *testing.T) {
 	dir := t.TempDir()
 	// Valid PEM block shape but not a real cert/key → X509KeyPair fails.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-key.pem"), []byte("-----BEGIN EC PRIVATE KEY-----\nAAAA\n-----END EC PRIVATE KEY-----\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-cert.pem"), []byte("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"), 0o644))      // #nosec G306 -- test fixture; not sensitive
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca-key.pem"), []byte("-----BEGIN EC PRIVATE KEY-----\nAAAA\n-----END EC PRIVATE KEY-----\n"), 0o644)) // #nosec G306 -- test fixture; not sensitive
 
 	_, err := LoadOrCreateCA(dir)
 	require.Error(t, err)

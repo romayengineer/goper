@@ -148,7 +148,7 @@ func checkTransparentPrivileges() error {
 // missing/unreadable cert yields nil (the endpoint then returns 404).
 func readCAPEM(cfg *config.Config) []byte {
 	certPath := filepath.Join(cfg.CADir, "ca-cert.pem")
-	if data, err := os.ReadFile(certPath); err == nil {
+	if data, err := os.ReadFile(certPath); err == nil { // #nosec G304,G703 -- path derives from the configured CA dir
 		return data
 	}
 	return nil
