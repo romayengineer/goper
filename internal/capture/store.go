@@ -159,11 +159,13 @@ func (rb *RingBuffer) scan(opts ListOpts) []*CapturedEntry {
 // keep reports whether the entry at idx is present and satisfies the filters.
 func (rb *RingBuffer) keep(idx int, opts ListOpts) bool {
 	entry := rb.buffer[idx]
-	return entry != nil && opts.matches(entry)
+	return entry != nil && Matches(opts, entry)
 }
 
-// matches reports whether an entry satisfies the List filters.
-func (opts ListOpts) matches(entry *CapturedEntry) bool {
+// Matches reports whether an entry satisfies the List filters. Exported so
+// stores and tests outside the package share the exact same semantics as the
+// RingBuffer's List.
+func Matches(opts ListOpts, entry *CapturedEntry) bool {
 	return !opts.sinceOrMethodExcludes(entry) && !opts.statusOrURLExcludes(entry)
 }
 

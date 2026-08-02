@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/romayengineer/goper/internal/capture"
@@ -140,10 +139,6 @@ func isStreamingResponse(resp *http.Response) bool {
 // isStreamingContentType reports whether a Content-Type denotes a
 // server-streaming body. Parameters such as "; charset=utf-8" are ignored.
 func isStreamingContentType(contentType string) bool {
-	ct := strings.ToLower(contentType)
-	if i := strings.Index(ct, ";"); i >= 0 {
-		ct = ct[:i]
-	}
-	ct = strings.TrimSpace(ct)
+	ct := capture.NormalizeMediaType(contentType)
 	return ct == "text/event-stream" || ct == "multipart/x-mixed-replace"
 }

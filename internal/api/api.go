@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/romayengineer/goper/internal/capture"
+	"github.com/romayengineer/goper/internal/httpx"
 )
 
 type Runnable interface {
@@ -52,24 +53,17 @@ func NewServer(port int, store capture.Store, caPEM []byte) Runnable {
 }
 
 func (s *Server) Run() error {
-	addr := fmt.Sprintf(":%d", s.port)
-	ln, err := net.Listen("tcp", addr)
+	ln, err := httpx.Listen(s.port)
 	if err != nil {
-		return fmt.Errorf("listen %s: %w", addr, err)
+		return err
 	}
 	return s.RunWithListener(ln)
 }
 
 func (s *Server) RunWithListener(l net.Listener) error {
 	slog.Info("api listening", "addr", l.Addr())
-	srv := &http.Server{
-		Handler:           s.router,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-	// No WriteTimeout: the /api/requests/stream SSE endpoint is long-lived.
-	return srv.Serve(l)
+	// No write timeout: the /api/requests/stream SSE endpoint is long-lived.
+	return httpx.Serve(s.router, l, 15*time.Second)
 }
 
 func CAURL(port int) string {

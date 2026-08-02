@@ -218,7 +218,7 @@ func TestServerRunListenError(t *testing.T) {
 	port := blocker.Addr().(*net.TCPAddr).Port
 
 	cfg := testConfig(t)
-	cfg.port = port
+	cfg.Port = port
 	s := newTestServer(t, cfg)
 
 	err = s.Run()
@@ -233,7 +233,7 @@ func TestRunTransparentUnsupportedOnNonLinux(t *testing.T) {
 	}
 
 	cfg := testConfig(t)
-	cfg.transparent = true
+	cfg.Transparent = true
 	s := newTestServer(t, cfg)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

@@ -49,39 +49,11 @@ func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
 	defer m.mu.Unlock()
 	var out []*capture.CapturedEntry
 	for _, e := range m.entries {
-		if entryMatches(opts, e) {
+		if capture.Matches(opts, e) {
 			out = append(out, e)
 		}
 	}
 	return out
-}
-
-func entryMatches(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return !sinceOrMethodExcludes(opts, e) && !statusOrURLExcludes(opts, e)
-}
-
-func sinceOrMethodExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return sinceExcludes(opts, e) || methodExcludes(opts, e)
-}
-
-func statusOrURLExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return statusExcludes(opts, e) || urlExcludes(opts, e)
-}
-
-func sinceExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return !opts.Since.IsZero() && e.Timestamp.Before(opts.Since)
-}
-
-func methodExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return opts.Method != "" && e.Method != opts.Method
-}
-
-func statusExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return opts.Status > 0 && e.StatusCode != opts.Status
-}
-
-func urlExcludes(opts capture.ListOpts, e *capture.CapturedEntry) bool {
-	return opts.URL != "" && e.URL != opts.URL
 }
 
 func (m *mockStore) Clear() {

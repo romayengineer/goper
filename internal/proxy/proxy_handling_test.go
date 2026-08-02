@@ -40,7 +40,7 @@ func TestShouldCaptureDefaultsToTrue(t *testing.T) {
 
 func TestShouldCaptureIncludeFilter(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.captureInclude = `\.json$`
+	cfg.CaptureInclude = `\.json$`
 	s := newTestServer(t, cfg)
 
 	reqJSON := httptest.NewRequest(http.MethodGet, "http://example.com/api/users.json", nil)
@@ -52,7 +52,7 @@ func TestShouldCaptureIncludeFilter(t *testing.T) {
 
 func TestShouldCaptureExcludeFilter(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.captureExclude = `(google-analytics|doubleclick)`
+	cfg.CaptureExclude = `(google-analytics|doubleclick)`
 	s := newTestServer(t, cfg)
 
 	reqOK := httptest.NewRequest(http.MethodGet, "http://example.com/api", nil)
@@ -64,7 +64,7 @@ func TestShouldCaptureExcludeFilter(t *testing.T) {
 
 func TestHandleRequestSkippedByFilter(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.captureExclude = `^http://example\.com/static/`
+	cfg.CaptureExclude = `^http://example\.com/static/`
 	s := newTestServer(t, cfg)
 	rec := &mockRecorder{}
 	s.recorder = rec

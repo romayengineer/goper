@@ -13,8 +13,11 @@ linters:
     - gosec
     - prealloc
     - revive
+    # - gocritic
 
   settings:
+    # gocritic:
+    #   enable-all: true
     gocyclo:
       # min-complexity is the maximum allowed complexity.
       min-complexity: 3

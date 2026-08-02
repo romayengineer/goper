@@ -86,7 +86,7 @@ func (h *Handler) replayEntry(w http.ResponseWriter, entry *capture.CapturedEntr
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"status_code": resp.StatusCode,
 		"headers":     resp.Header,
 		"body":        string(respBody),

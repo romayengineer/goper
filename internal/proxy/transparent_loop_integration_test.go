@@ -39,7 +39,7 @@ func (f fakeResolver) Resolve(conn net.Conn) (*OriginalDst, error) {
 func newTransparentServer(t *testing.T, upstreamPort int) (*Server, string) {
 	t.Helper()
 	cfg := testConfig(t)
-	cfg.transparent = true
+	cfg.Transparent = true
 
 	s := newTestServer(t, cfg)
 	s.resolver = fakeResolver{ip: "127.0.0.1", port: upstreamPort}

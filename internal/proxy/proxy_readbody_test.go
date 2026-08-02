@@ -162,7 +162,7 @@ func (r *failAfterReader) Read(p []byte) (int, error) {
 
 func TestHandleResponseAppliesResponseBodyLimit(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.responseBodyLimit = 5
+	cfg.ResponseBodyLimit = 5
 	s := newTestServer(t, cfg)
 	store := &mockStore{}
 	s.store = store
@@ -185,7 +185,7 @@ func TestHandleResponseAppliesResponseBodyLimit(t *testing.T) {
 
 func TestHandleRequestAppliesRequestBodyLimit(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.requestBodyLimit = 4
+	cfg.RequestBodyLimit = 4
 	s := newTestServer(t, cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "http://example.com/api", strings.NewReader("a long body"))
@@ -203,8 +203,8 @@ func TestHandleRequestAppliesRequestBodyLimit(t *testing.T) {
 
 func TestShouldCaptureExcludeWinsOverInclude(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.captureInclude = `example\.com`
-	cfg.captureExclude = `ads`
+	cfg.CaptureInclude = `example\.com`
+	cfg.CaptureExclude = `ads`
 	s := newTestServer(t, cfg)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/ads/pixel", nil)

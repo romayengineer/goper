@@ -178,11 +178,17 @@ func worthCapturing(s, contentType string) bool {
 // newline-delimited JSON (application/x-ndjson). Parameters such as
 // "charset=utf-8" are ignored.
 func IsJSONContentType(contentType string) bool {
+	return isJSONMimeType(NormalizeMediaType(contentType))
+}
+
+// NormalizeMediaType lowercases a Content-Type value and strips its parameters
+// ("application/json; charset=utf-8" → "application/json").
+func NormalizeMediaType(contentType string) string {
 	ct := strings.ToLower(contentType)
 	if i := strings.Index(ct, ";"); i >= 0 {
 		ct = ct[:i]
 	}
-	return isJSONMimeType(strings.TrimSpace(ct))
+	return strings.TrimSpace(ct)
 }
 
 // isJSONMimeType reports whether a mime type (no parameters) denotes JSON.

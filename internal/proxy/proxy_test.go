@@ -13,38 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockConfig struct {
-	port              int
-	apiPort           int
-	caDir             string
-	transparent       bool
-	verbose           bool
-	bufferSize        int
-	logFormat         string
-	logLevel          slog.Level
-	outputDir         string
-	outputFormat      string
-	requestBodyLimit  int64
-	responseBodyLimit int64
-	captureInclude    string
-	captureExclude    string
-}
-
-func (m mockConfig) ProxyPort() int              { return m.port }
-func (m mockConfig) GetAPIPort() int             { return m.apiPort }
-func (m mockConfig) GetCADir() string            { return m.caDir }
-func (m mockConfig) IsTransparent() bool         { return m.transparent }
-func (m mockConfig) IsVerbose() bool             { return m.verbose }
-func (m mockConfig) GetBufferSize() int          { return m.bufferSize }
-func (m mockConfig) GetLogFormat() string        { return m.logFormat }
-func (m mockConfig) GetLogLevel() slog.Level     { return m.logLevel }
-func (m mockConfig) GetOutputDir() string        { return m.outputDir }
-func (m mockConfig) GetOutputFormat() string     { return m.outputFormat }
-func (m mockConfig) GetRequestBodyLimit() int64  { return m.requestBodyLimit }
-func (m mockConfig) GetResponseBodyLimit() int64 { return m.responseBodyLimit }
-func (m mockConfig) GetCaptureInclude() string   { return m.captureInclude }
-func (m mockConfig) GetCaptureExclude() string   { return m.captureExclude }
-
 type mockStore struct {
 	pushed []*capture.CapturedEntry
 }
@@ -107,13 +75,13 @@ func (m *mockOutput) WriteEntry(entry *capture.CapturedEntry) error {
 	return nil
 }
 
-func testConfig(t *testing.T) mockConfig {
-	return mockConfig{
-		port:       8080,
-		apiPort:    8081,
-		caDir:      t.TempDir(),
-		bufferSize: 100,
-		logLevel:   slog.LevelInfo,
+func testConfig(t *testing.T) *config.Config {
+	return &config.Config{
+		Port:       8080,
+		APIPort:    8081,
+		CADir:      t.TempDir(),
+		BufferSize: 100,
+		LogLevel:   slog.LevelInfo,
 	}
 }
 
@@ -152,13 +120,13 @@ func TestAddOutput(t *testing.T) {
 
 func TestNewServerInvalidRegexes(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.captureInclude = "[unclosed"
+	cfg.CaptureInclude = "[unclosed"
 	_, err := NewServer(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "capture-include")
 
 	cfg2 := testConfig(t)
-	cfg2.captureExclude = "[unclosed"
+	cfg2.CaptureExclude = "[unclosed"
 	_, err = NewServer(cfg2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "capture-exclude")

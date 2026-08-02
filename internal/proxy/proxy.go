@@ -11,6 +11,7 @@ import (
 	"github.com/elazarl/goproxy"
 	"github.com/romayengineer/goper/internal/capture"
 	"github.com/romayengineer/goper/internal/config"
+	"github.com/romayengineer/goper/internal/httpx"
 	"github.com/romayengineer/goper/internal/output"
 )
 
@@ -107,10 +108,9 @@ func (s *Server) AddOutput(w output.Writer) {
 }
 
 func (s *Server) Run() error {
-	addr := fmt.Sprintf(":%d", s.config.ProxyPort())
-	ln, err := net.Listen("tcp", addr)
+	ln, err := httpx.Listen(s.config.ProxyPort())
 	if err != nil {
-		return fmt.Errorf("listen %s: %w", addr, err)
+		return err
 	}
 	return s.RunWithListener(ln)
 }
@@ -120,20 +120,7 @@ func (s *Server) RunWithListener(l net.Listener) error {
 		return s.runTransparent(l)
 	}
 	slog.Info("proxy listening", "addr", l.Addr())
-	return serveWithTimeouts(s.proxy, l)
-}
-
-// serveWithTimeouts serves handler on l with sane connection timeouts. A write
-// timeout is intentionally omitted so long-running streams and large
-// downloads are never killed mid-transfer; ReadHeaderTimeout alone mitigates
-// slow-loris style connection exhaustion.
-func serveWithTimeouts(handler http.Handler, l net.Listener) error {
-	srv := &http.Server{
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-	return srv.Serve(l)
+	return httpx.Serve(s.proxy, l, 0)
 }
 
 func (s *Server) Store() capture.Store {

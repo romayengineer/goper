@@ -36,7 +36,7 @@ func (h *Handler) ListRequests(w http.ResponseWriter, r *http.Request) {
 		entries = []*capture.CapturedEntry{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"count": len(entries),
 		"data":  entries,
 	})
@@ -104,7 +104,7 @@ func (h *Handler) ClearRequests(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	s := h.store.Stats()
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"count":          s.Count,
 		"capacity":       s.Capacity,
 		"evictions":      s.Evictions,
@@ -124,7 +124,7 @@ func (h *Handler) GetCA(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(h.caPEM)
 }
 
-func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/romayengineer/goper/internal/httpx"
 )
 
 // peekTimeout bounds how long we wait for the first bytes of a connection
@@ -279,7 +281,7 @@ func (s *Server) serveInner(inner net.Conn, scheme, fallbackHost string) {
 	// released and http.Serve returns.
 	l.conn = &closeNotifyConn{Conn: inner, onClose: func() { _ = l.Close() }}
 
-	_ = serveWithTimeouts(handler, l)
+	_ = httpx.Serve(handler, l, 0)
 }
 
 // rewriteTransparentURL makes a relative (transparent-style) request URL
