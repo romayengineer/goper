@@ -155,25 +155,44 @@ func (w *NDJSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
 // guards against path traversal (e.g. a ".." or "..." host). Falls back to
 // "unknown".
 func safeDomain(host string) string {
-	h := host
-	if hostname, _, err := net.SplitHostPort(h); err == nil {
-		h = hostname
+	name := sanitizeHost(splitHostname(host))
+	if !validSegmentName(name) {
+		return "unknown"
 	}
+	return name
+}
 
+// splitHostname strips a trailing port (e.g. "example.com:8080") and returns
+// the host unchanged when there is no port.
+func splitHostname(host string) string {
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		return hostname
+	}
+	return host
+}
+
+// sanitizeHost lowercases a hostname and replaces characters that are unsafe
+// in file paths with an underscore.
+func sanitizeHost(h string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(h) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '-' {
+		if isSafeRune(r) {
 			b.WriteRune(r)
 		} else {
 			b.WriteByte('_')
 		}
 	}
+	return b.String()
+}
 
-	name := b.String()
-	if name == "" || name == "." || name == ".." {
-		return "unknown"
-	}
-	return name
+func isSafeRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '-'
+}
+
+// validSegmentName rejects empty or dot-segment names, which would escape the
+// capture directory or be silently dropped by the filesystem.
+func validSegmentName(name string) bool {
+	return name != "" && name != "." && name != ".."
 }
 
 // jsonBody returns the raw response body bytes if the entry carries a JSON
