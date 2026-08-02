@@ -53,21 +53,27 @@ func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
 	defer m.mu.Unlock()
 	var out []*capture.CapturedEntry
 	for _, e := range m.entries {
-		if !opts.Since.IsZero() && e.Timestamp.Before(opts.Since) {
-			continue
+		if entryMatches(opts, e) {
+			out = append(out, e)
 		}
-		if opts.Method != "" && e.Method != opts.Method {
-			continue
-		}
-		if opts.Status > 0 && e.StatusCode != opts.Status {
-			continue
-		}
-		if opts.URL != "" && e.URL != opts.URL {
-			continue
-		}
-		out = append(out, e)
 	}
 	return out
+}
+
+func entryMatches(opts capture.ListOpts, e *capture.CapturedEntry) bool {
+	if !opts.Since.IsZero() && e.Timestamp.Before(opts.Since) {
+		return false
+	}
+	if opts.Method != "" && e.Method != opts.Method {
+		return false
+	}
+	if opts.Status > 0 && e.StatusCode != opts.Status {
+		return false
+	}
+	if opts.URL != "" && e.URL != opts.URL {
+		return false
+	}
+	return true
 }
 
 func (m *mockStore) Clear() {

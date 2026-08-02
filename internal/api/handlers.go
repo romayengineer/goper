@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -128,10 +129,13 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 	ch := h.store.Subscribe()
 	defer h.store.Unsubscribe(ch)
 
-	ctx := r.Context()
+	h.streamLoop(r.Context(), w, flusher, ch)
+}
 
-	// Periodic SSE comment keeps the stream alive through proxies/gateways
-	// that reap idle connections.
+// streamLoop forwards live entries to the SSE client until the connection
+// closes. A periodic comment keeps the stream alive through proxies/gateways
+// that reap idle connections.
+func (h *Handler) streamLoop(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, ch <-chan *capture.CapturedEntry) {
 	ping := time.NewTicker(30 * time.Second)
 	defer ping.Stop()
 
