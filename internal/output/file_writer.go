@@ -240,13 +240,13 @@ func validSegmentName(name string) bool {
 	return name != "" && name != "." && name != ".."
 }
 
-// jsonBody returns the raw response body bytes if the entry carries a JSON
-// response, and ok=false otherwise.
+// jsonBody returns the raw response body bytes when the entry carries a
+// response body, and ok=false otherwise. Whether the body actually parses as
+// JSON is decided by the caller (indentJSON / compactJSON) via json.Indent /
+// json.Compact, so any body that is valid JSON is dumped regardless of its
+// Content-Type.
 func jsonBody(entry *capture.CapturedEntry) ([]byte, bool) {
 	if !hasBody(entry) {
-		return nil, false
-	}
-	if !capture.IsJSONContentType(entry.ContentType) {
 		return nil, false
 	}
 	return []byte(*entry.ResponseBody), true
