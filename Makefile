@@ -76,8 +76,10 @@ cover-integration:
 	@go tool cover -func=coverage.out | grep total | awk '{print "total: " $$3}'
 	@rm -f coverage.out
 
+# vet + staticcheck (install: go install honnef.co/go/tools/cmd/staticcheck@latest)
 lint:
 	go vet ./...
+	staticcheck ./...
 
 clean:
 	rm -f $(BINARY)

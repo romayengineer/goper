@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -126,10 +127,20 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// Periodic SSE comment keeps the stream alive through proxies/gateways
+	// that reap idle connections.
+	ping := time.NewTicker(30 * time.Second)
+	defer ping.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-ping.C:
+			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
 		case entry, ok := <-ch:
 			if !ok {
 				return
@@ -144,6 +155,7 @@ func (h *Handler) StreamRequests(w http.ResponseWriter, r *http.Request) {
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, entry *capture.CapturedEntry) bool {
 	data, err := json.Marshal(entry)
 	if err != nil {
+		slog.Error("sse marshal failed", "id", entry.ID, "error", err)
 		return true
 	}
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
@@ -186,23 +198,26 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
-
 // replayMaxBody caps how much of a replayed response is returned to the
 // caller (the response itself is streamed in full to the upstream target).
 const replayMaxBody = 1 << 20 // 1 MiB
 
+// replayClient is shared across replay requests; a single client keeps the
+// connection pool warm and avoids re-initializing TLS state per call.
+var replayClient = &http.Client{Timeout: 30 * time.Second}
+
 // hopByHopHeaders are stripped when rebuilding a replayed request; they are
 // connection-specific and meaningless (or actively harmful) when resent.
 var hopByHopHeaders = map[string]bool{
-	"connection":          true,
-	"proxy-connection":    true,
-	"keep-alive":          true,
-	"transfer-encoding":   true,
-	"te":                  true,
-	"trailer":             true,
-	"upgrade":             true,
-	"host":                true,
-	"content-length":      true,
+	"connection":        true,
+	"proxy-connection":  true,
+	"keep-alive":        true,
+	"transfer-encoding": true,
+	"te":                true,
+	"trailer":           true,
+	"upgrade":           true,
+	"host":              true,
+	"content-length":    true,
 }
 
 // ReplayRequest re-sends a captured request to its original URL using the
@@ -233,7 +248,7 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := replayClient
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {

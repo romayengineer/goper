@@ -151,9 +151,9 @@ type CertStore interface {
 }
 
 type CertCache struct {
-	mu   sync.RWMutex
+	mu    sync.RWMutex
 	certs map[string]*tls.Certificate
-	ca   CAProvider
+	ca    CAProvider
 }
 
 func NewCertCache(ca CAProvider) *CertCache {

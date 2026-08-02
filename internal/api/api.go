@@ -62,7 +62,14 @@ func (s *Server) Run() error {
 
 func (s *Server) RunWithListener(l net.Listener) error {
 	slog.Info("api listening", "addr", l.Addr())
-	return http.Serve(l, s.router)
+	srv := &http.Server{
+		Handler:           s.router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	// No WriteTimeout: the /api/requests/stream SSE endpoint is long-lived.
+	return srv.Serve(l)
 }
 
 func CAURL(port int) string {

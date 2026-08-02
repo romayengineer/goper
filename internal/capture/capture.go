@@ -32,7 +32,7 @@ func NewDefaultRecorder(requestBodyLimit, responseBodyLimit int64) Recorder {
 }
 
 func (r *DefaultRecorder) CaptureRequest(req *http.Request) CapturedEntry {
-	entry := CaptureRequest(req)
+	entry := captureRequest(req, r.RequestBodyLimit)
 	if r.RequestBodyLimit > 0 && entry.RequestBody != nil && int64(len(*entry.RequestBody)) > r.RequestBodyLimit {
 		entry.RequestBody = nil
 	}
@@ -69,6 +69,15 @@ func headersToMap(h http.Header) map[string]string {
 }
 
 func CaptureRequest(req *http.Request) CapturedEntry {
+	return captureRequest(req, -1)
+}
+
+// captureRequest builds a request entry, reading at most limit+1 bytes of the
+// request body (limit <= 0 means unlimited). Reading is bounded so a large
+// upload is never fully buffered when a limit is configured. The body is
+// restored as the captured prefix plus the untouched remainder so proxying
+// still sees the complete request body.
+func captureRequest(req *http.Request, limit int64) CapturedEntry {
 	entry := CapturedEntry{
 		Method:         req.Method,
 		URL:            req.URL.String(),
@@ -79,15 +88,26 @@ func CaptureRequest(req *http.Request) CapturedEntry {
 	}
 
 	if req.Body != nil {
-		bodyBytes, err := io.ReadAll(req.Body)
+		buffered, err := readBounded(req.Body, limit)
 		if err == nil {
-			s := string(bodyBytes)
+			s := string(buffered)
 			entry.RequestBody = &s
-			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(buffered), req.Body))
 		}
 	}
 
 	return entry
+}
+
+// readBounded reads at most limit+1 bytes from r, leaving any remainder in r
+// untouched (reads stop when the limit is reached). limit <= 0 reads
+// everything (the "0 = unlimited" config convention). It returns the bytes
+// read (never more than limit+1).
+func readBounded(r io.Reader, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		return io.ReadAll(r)
+	}
+	return io.ReadAll(io.LimitReader(r, limit+1))
 }
 
 type CaptureResult struct {
@@ -106,7 +126,7 @@ func CaptureResponse(statusCode int, header http.Header, bodyBytes []byte, start
 		ContentType:     header.Get("Content-Type"),
 	}
 
-	if len(bodyBytes) > 0 && len(bodyBytes) < 1*1024*1024 {
+	if len(bodyBytes) > 0 {
 		s := string(bodyBytes)
 		if isPrintable(s) || IsJSONContentType(cr.ContentType) {
 			cr.ResponseBody = &s

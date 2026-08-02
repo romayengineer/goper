@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -99,7 +100,8 @@ func (s *Server) runTransparent(l net.Listener) error {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
 				time.Sleep(10 * time.Millisecond)
 				continue
 			}
@@ -212,5 +214,5 @@ func (s *Server) serveInner(inner net.Conn, scheme, fallbackHost string) {
 	// released and http.Serve returns.
 	l.conn = &closeNotifyConn{Conn: inner, onClose: func() { _ = l.Close() }}
 
-	_ = http.Serve(l, handler)
+	_ = serveWithTimeouts(handler, l)
 }

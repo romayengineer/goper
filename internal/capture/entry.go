@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"sync/atomic"
 	"time"
 )
 
@@ -23,11 +24,10 @@ type CapturedEntry struct {
 	ContentType     string            `json:"content_type"`
 }
 
-var idCounter int64
+var idCounter atomic.Int64
 
 func NewEntryID() EntryID {
-	idCounter++
-	return EntryID(time.Now().Format("20060102150405") + "-" + itoa(int(idCounter)))
+	return EntryID(time.Now().Format("20060102150405") + "-" + itoa(int(idCounter.Add(1))))
 }
 
 func itoa(n int) string {

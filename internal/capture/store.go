@@ -27,13 +27,13 @@ type StoreStats struct {
 }
 
 type RingBuffer struct {
-	mu      sync.RWMutex
-	buffer  []*CapturedEntry
-	head    int
-	tail    int
-	count   int
+	mu       sync.RWMutex
+	buffer   []*CapturedEntry
+	head     int
+	tail     int
+	count    int
 	capacity int
-	idIndex map[EntryID]int
+	idIndex  map[EntryID]int
 
 	startTime     time.Time
 	evictions     int64
@@ -56,7 +56,6 @@ func NewRingBuffer(capacity int) *RingBuffer {
 
 func (rb *RingBuffer) Push(entry *CapturedEntry) {
 	rb.mu.Lock()
-	defer rb.mu.Unlock()
 
 	if entry.ID == "" {
 		entry.ID = NewEntryID()
@@ -79,8 +78,14 @@ func (rb *RingBuffer) Push(entry *CapturedEntry) {
 	rb.tail = (rb.tail + 1) % rb.capacity
 	rb.count++
 
+	// Snapshot the subscribers under the lock, then notify outside it so a
+	// slow (or blocking) subscriber never stalls ingestion.
+	subs := make([]chan *CapturedEntry, len(rb.subscribers))
+	copy(subs, rb.subscribers)
+	rb.mu.Unlock()
+
 	entryCopy := *entry
-	for _, sub := range rb.subscribers {
+	for _, sub := range subs {
 		select {
 		case sub <- &entryCopy:
 		default:
@@ -104,12 +109,12 @@ func (rb *RingBuffer) Get(id EntryID) *CapturedEntry {
 }
 
 type ListOpts struct {
-	Since   time.Time
-	Method  string
-	Status  int
-	URL     string
-	Limit   int
-	Offset  int
+	Since  time.Time
+	Method string
+	Status int
+	URL    string
+	Limit  int
+	Offset int
 }
 
 func (rb *RingBuffer) List(opts ListOpts) []*CapturedEntry {

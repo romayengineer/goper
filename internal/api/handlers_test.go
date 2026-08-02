@@ -249,11 +249,11 @@ func TestGetStats(t *testing.T) {
 	h.GetStats(rec, req)
 
 	var body struct {
-		Count          int   `json:"count"`
-		Capacity       int   `json:"capacity"`
-		Evictions      int64 `json:"evictions"`
-		BytesCaptured  int64 `json:"bytes_captured"`
-		UptimeSeconds  int64 `json:"uptime_seconds"`
+		Count         int   `json:"count"`
+		Capacity      int   `json:"capacity"`
+		Evictions     int64 `json:"evictions"`
+		BytesCaptured int64 `json:"bytes_captured"`
+		UptimeSeconds int64 `json:"uptime_seconds"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, 2, body.Count)

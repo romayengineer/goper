@@ -104,7 +104,20 @@ func (s *Server) RunWithListener(l net.Listener) error {
 		return s.runTransparent(l)
 	}
 	slog.Info("proxy listening", "addr", l.Addr())
-	return http.Serve(l, s.proxy)
+	return serveWithTimeouts(s.proxy, l)
+}
+
+// serveWithTimeouts serves handler on l with sane connection timeouts. A write
+// timeout is intentionally omitted so long-running streams and large
+// downloads are never killed mid-transfer; ReadHeaderTimeout alone mitigates
+// slow-loris style connection exhaustion.
+func serveWithTimeouts(handler http.Handler, l net.Listener) error {
+	srv := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	return srv.Serve(l)
 }
 
 func (s *Server) Store() capture.Store {
@@ -155,13 +168,18 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 		return resp
 	}
 
-	bodyBytes, err := readBody(resp)
+	bodyBytes, truncated, err := readBodyBounded(resp, s.config.GetResponseBodyLimit())
 	if err != nil {
 		return resp
 	}
-
-	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	resp.ContentLength = int64(len(bodyBytes))
+	if truncated {
+		// The body exceeded the capture limit; the length of the streamed
+		// remainder is unknown, so fall back to chunked/close-delimited
+		// framing rather than a wrong Content-Length.
+		resp.ContentLength = -1
+	} else {
+		resp.ContentLength = int64(len(bodyBytes))
+	}
 
 	result := s.recorder.CaptureResponse(
 		resp.StatusCode,
@@ -195,11 +213,26 @@ type captureCtx struct {
 	start time.Time
 }
 
-func readBody(resp *http.Response) ([]byte, error) {
+// readBodyBounded reads at most limit+1 bytes of the response body for
+// capture (limit <= 0 reads everything), then rewires resp.Body so the full
+// body still streams to the client: the captured prefix is replayed followed
+// by whatever remains in the original body. It returns truncated=true when the
+// body exceeded the capture limit (the recorder then drops the oversized body).
+func readBodyBounded(resp *http.Response, limit int64) ([]byte, bool, error) {
 	if resp.Body == nil {
-		return nil, nil
+		return nil, false, nil
 	}
-	defer resp.Body.Close()
 
-	return io.ReadAll(resp.Body)
+	var r io.Reader = resp.Body
+	if limit > 0 {
+		r = io.LimitReader(resp.Body, limit+1)
+	}
+	buffered, err := io.ReadAll(r)
+	if err != nil {
+		return nil, false, err
+	}
+
+	truncated := limit > 0 && int64(len(buffered)) == limit+1
+	resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(buffered), resp.Body))
+	return buffered, truncated, nil
 }

@@ -35,16 +35,16 @@ type mockConfig struct {
 	captureExclude    string
 }
 
-func (m mockConfig) ProxyPort() int          { return m.port }
-func (m mockConfig) GetAPIPort() int         { return m.apiPort }
-func (m mockConfig) GetCADir() string        { return m.caDir }
-func (m mockConfig) IsTransparent() bool     { return m.transparent }
-func (m mockConfig) IsVerbose() bool         { return m.verbose }
-func (m mockConfig) GetBufferSize() int      { return m.bufferSize }
-func (m mockConfig) GetLogFormat() string    { return m.logFormat }
-func (m mockConfig) GetLogLevel() slog.Level { return m.logLevel }
-func (m mockConfig) GetOutputDir() string    { return m.outputDir }
-func (m mockConfig) GetOutputFormat() string { return m.outputFormat }
+func (m mockConfig) ProxyPort() int              { return m.port }
+func (m mockConfig) GetAPIPort() int             { return m.apiPort }
+func (m mockConfig) GetCADir() string            { return m.caDir }
+func (m mockConfig) IsTransparent() bool         { return m.transparent }
+func (m mockConfig) IsVerbose() bool             { return m.verbose }
+func (m mockConfig) GetBufferSize() int          { return m.bufferSize }
+func (m mockConfig) GetLogFormat() string        { return m.logFormat }
+func (m mockConfig) GetLogLevel() slog.Level     { return m.logLevel }
+func (m mockConfig) GetOutputDir() string        { return m.outputDir }
+func (m mockConfig) GetOutputFormat() string     { return m.outputFormat }
 func (m mockConfig) GetRequestBodyLimit() int64  { return m.requestBodyLimit }
 func (m mockConfig) GetResponseBodyLimit() int64 { return m.responseBodyLimit }
 func (m mockConfig) GetCaptureInclude() string   { return m.captureInclude }
@@ -68,8 +68,8 @@ func (m *mockStore) Get(id capture.EntryID) *capture.CapturedEntry {
 func (m *mockStore) List(opts capture.ListOpts) []*capture.CapturedEntry {
 	return m.pushed
 }
-func (m *mockStore) Clear()                   { m.pushed = nil }
-func (m *mockStore) Len() int                 { return len(m.pushed) }
+func (m *mockStore) Clear()   { m.pushed = nil }
+func (m *mockStore) Len() int { return len(m.pushed) }
 func (m *mockStore) Stats() capture.StoreStats {
 	return capture.StoreStats{Count: len(m.pushed), Capacity: 100}
 }
@@ -380,15 +380,17 @@ func TestHandleResponseNoUserData(t *testing.T) {
 }
 
 func TestReadBodyNilBody(t *testing.T) {
-	b, err := readBody(&http.Response{Body: nil})
+	b, truncated, err := readBodyBounded(&http.Response{Body: nil}, 0)
 	assert.NoError(t, err)
 	assert.Empty(t, b)
+	assert.False(t, truncated)
 }
 
 func TestReadBodyEmptyBody(t *testing.T) {
-	b, err := readBody(&http.Response{Body: io.NopCloser(strings.NewReader(""))})
+	b, truncated, err := readBodyBounded(&http.Response{Body: io.NopCloser(strings.NewReader(""))}, 0)
 	assert.NoError(t, err)
 	assert.Empty(t, b)
+	assert.False(t, truncated)
 }
 
 func TestHandleResponseAppliesResponseBodyLimit(t *testing.T) {

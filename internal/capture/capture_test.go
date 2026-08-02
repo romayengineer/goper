@@ -78,7 +78,29 @@ func TestCaptureResponseLargeBody(t *testing.T) {
 	}
 
 	cr := CaptureResponse(200, header, big, time.Now())
-	assert.Nil(t, cr.ResponseBody, "expected large body to be skipped")
+	require.NotNil(t, cr.ResponseBody, "pure CaptureResponse has no size cap")
+	assert.Len(t, *cr.ResponseBody, 2*1024*1024)
+}
+
+func TestDefaultRecorderDropsLargeResponse(t *testing.T) {
+	rec := NewDefaultRecorder(0, 1<<20) // 1 MiB response cap (default)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+
+	big := make([]byte, (1<<20)+1)
+	for i := range big {
+		big[i] = 'x'
+	}
+
+	cr := rec.CaptureResponse(200, header, big, time.Now())
+	assert.Nil(t, cr.ResponseBody, "response over the configured limit should be skipped")
+
+	// 0 = unlimited must NOT be capped (regression: the old hardcoded 1 MiB
+	// cap made --response-body-limit 0 behave like 1 MiB).
+	unlimited := NewDefaultRecorder(0, 0)
+	crUnlimited := unlimited.CaptureResponse(200, header, big, time.Now())
+	require.NotNil(t, crUnlimited.ResponseBody)
+	assert.Len(t, *crUnlimited.ResponseBody, (1<<20)+1)
 }
 
 func TestCaptureResponseBinary(t *testing.T) {
@@ -188,12 +210,12 @@ func TestHeadersToMapMultiValueAndRedaction(t *testing.T) {
 	// lowercase/mixed-case keys so the case-insensitive redaction is tested
 	// directly rather than relying on http.Header canonicalization.
 	h := http.Header{
-		"X-Multi":            {"one", "two"},
-		"Authorization":      {"Bearer secret"},
-		"cookie":             {"session=abc"},
-		"CoOkIe":             {"mixed=case"},
+		"X-Multi":             {"one", "two"},
+		"Authorization":       {"Bearer secret"},
+		"cookie":              {"session=abc"},
+		"CoOkIe":              {"mixed=case"},
 		"Proxy-Authorization": {"Basic x"},
-		"Set-Cookie":         {"a=b"},
+		"Set-Cookie":          {"a=b"},
 	}
 
 	m := headersToMap(h)

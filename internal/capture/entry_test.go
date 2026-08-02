@@ -24,9 +24,9 @@ func TestNewEntryIDUniqueness(t *testing.T) {
 }
 
 func TestNewEntryIDCounterRestarts(t *testing.T) {
-	old := idCounter
-	idCounter = 0
-	defer func() { idCounter = old }()
+	old := idCounter.Load()
+	idCounter.Store(0)
+	defer func() { idCounter.Store(old) }()
 
 	id := NewEntryID()
 	assert.True(t, strings.HasSuffix(string(id), "-1"), "expected counter restart at 1, got %q", id)

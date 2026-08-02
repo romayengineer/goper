@@ -171,9 +171,9 @@ func TestNewJSONBodyWriterRealFS(t *testing.T) {
 
 	body := `{"ok":true}`
 	entry := &capture.CapturedEntry{
-		ID:          "abc",
-		Host:        "api.example.com",
-		ContentType: "application/json",
+		ID:           "abc",
+		Host:         "api.example.com",
+		ContentType:  "application/json",
 		ResponseBody: &body,
 	}
 	require.NoError(t, w.WriteEntry(entry))

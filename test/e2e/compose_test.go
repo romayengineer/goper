@@ -1,8 +1,9 @@
 //go:build e2e
 
 // Package e2e tests the full docker-compose workflow:
-//   goper (proxy) + windowed Chrome (headed, CDP) + Playwright driving it,
-//   with JSON responses dumped into the host-mounted ./captures directory.
+//
+//	goper (proxy) + windowed Chrome (headed, CDP) + Playwright driving it,
+//	with JSON responses dumped into the host-mounted ./captures directory.
 //
 // Requires Docker (with the compose plugin) and internet access to the
 // default target (https://jsonplaceholder.typicode.com/todos/1). Override

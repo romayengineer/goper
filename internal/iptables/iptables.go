@@ -1,6 +1,7 @@
 package iptables
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -114,8 +115,21 @@ func (m *Manager) ruleExists(r rule) (bool, error) {
 	args := append([]string{"-t", r.table, "-C", r.chain}, r.spec...)
 	out, err := m.runner.Run("iptables", args...)
 	if err != nil {
+		if isExecFailure(err) {
+			return false, fmt.Errorf("iptables %s: %w", strings.Join(args, " "), err)
+		}
+		// Any other exit status means the rule is absent (iptables -C exits
+		// non-zero when the rule does not exist).
+		_ = out
 		return false, nil
 	}
-	_ = out
 	return true, nil
+}
+
+// isExecFailure reports whether a command error means the iptables binary
+// could not run at all (as opposed to the rule simply not existing), so the
+// caller surfaces a real failure instead of misreading it as "rule absent".
+func isExecFailure(err error) bool {
+	var execErr *exec.Error
+	return errors.As(err, &execErr)
 }
