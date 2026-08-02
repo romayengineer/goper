@@ -144,13 +144,18 @@ func (rb *RingBuffer) List(opts ListOpts) []*CapturedEntry {
 	result := make([]*CapturedEntry, 0, rb.count)
 	for i := 0; i < rb.capacity; i++ {
 		idx := (rb.head + i) % rb.capacity
-		entry := rb.buffer[idx]
-		if entry != nil && opts.matches(entry) {
-			result = append(result, entry)
+		if rb.keep(idx, opts) {
+			result = append(result, rb.buffer[idx])
 		}
 	}
 
 	return paginate(result, opts)
+}
+
+// keep reports whether the entry at idx is present and satisfies the filters.
+func (rb *RingBuffer) keep(idx int, opts ListOpts) bool {
+	entry := rb.buffer[idx]
+	return entry != nil && opts.matches(entry)
 }
 
 // matches reports whether an entry satisfies the List filters.
@@ -183,8 +188,13 @@ func paginate(result []*CapturedEntry, opts ListOpts) []*CapturedEntry {
 		}
 		result = result[opts.Offset:]
 	}
-	if opts.Limit > 0 && opts.Limit < len(result) {
-		result = result[:opts.Limit]
+	return capResult(result, opts.Limit)
+}
+
+// capResult truncates result to at most limit entries.
+func capResult(result []*CapturedEntry, limit int) []*CapturedEntry {
+	if limit > 0 && limit < len(result) {
+		return result[:limit]
 	}
 	return result
 }

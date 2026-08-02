@@ -32,9 +32,28 @@ func GenerateCA() (*CA, error) {
 		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
 
+	cert, certDER, err := caCertificate(key)
+	if err != nil {
+		return nil, err
+	}
+
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+
+	return &CA{
+		Cert:     cert,
+		Key:      key,
+		TLS:      tls.Certificate{Certificate: [][]byte{certDER}, PrivateKey: key},
+		certPool: pool,
+	}, nil
+}
+
+// caCertificate creates a self-signed CA certificate and returns both the
+// parsed certificate and its DER encoding.
+func caCertificate(key *ecdsa.PrivateKey) (*x509.Certificate, []byte, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return nil, fmt.Errorf("generate serial: %w", err)
+		return nil, nil, fmt.Errorf("generate serial: %w", err)
 	}
 
 	template := &x509.Certificate{
@@ -53,23 +72,15 @@ func GenerateCA() (*CA, error) {
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		return nil, fmt.Errorf("create CA cert: %w", err)
+		return nil, nil, fmt.Errorf("create CA cert: %w", err)
 	}
 
 	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
-		return nil, fmt.Errorf("parse CA cert: %w", err)
+		return nil, nil, fmt.Errorf("parse CA cert: %w", err)
 	}
 
-	pool := x509.NewCertPool()
-	pool.AddCert(cert)
-
-	return &CA{
-		Cert:     cert,
-		Key:      key,
-		TLS:      tls.Certificate{Certificate: [][]byte{certDER}, PrivateKey: key},
-		certPool: pool,
-	}, nil
+	return cert, certDER, nil
 }
 
 func LoadOrCreateCA(dir string) (*CA, error) {
@@ -148,6 +159,11 @@ func loadCA(certPath, keyPath string) (*CA, error) {
 		return nil, fmt.Errorf("parse CA key pair: %w", err)
 	}
 
+	return parseCAPair(tlsCert)
+}
+
+// parseCAPair builds a CA from an already-parsed TLS key pair.
+func parseCAPair(tlsCert tls.Certificate) (*CA, error) {
 	cert, err := x509.ParseCertificate(tlsCert.Certificate[0])
 	if err != nil {
 		return nil, fmt.Errorf("parse CA cert: %w", err)
@@ -242,6 +258,25 @@ func (cc *CertCache) generateCert(host string) (*tls.Certificate, error) {
 		return nil, fmt.Errorf("generate host key: %w", err)
 	}
 
+	template, err := hostCertificateTemplate(host, key)
+	if err != nil {
+		return nil, err
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, cc.ca.Certificate(), &key.PublicKey, cc.ca.PrivateKey())
+	if err != nil {
+		return nil, fmt.Errorf("create host cert: %w", err)
+	}
+
+	return &tls.Certificate{
+		Certificate: [][]byte{certDER, cc.ca.Certificate().Raw},
+		PrivateKey:  key,
+	}, nil
+}
+
+// hostCertificateTemplate builds the certificate template for a host, using an
+// IP SAN when the host parses as an IP address and DNS names otherwise.
+func hostCertificateTemplate(host string, key *ecdsa.PrivateKey) (*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return nil, fmt.Errorf("generate serial: %w", err)
@@ -265,15 +300,7 @@ func (cc *CertCache) generateCert(host string) (*tls.Certificate, error) {
 		template.DNSNames = []string{host}
 	}
 
-	certDER, err := x509.CreateCertificate(rand.Reader, template, cc.ca.Certificate(), &key.PublicKey, cc.ca.PrivateKey())
-	if err != nil {
-		return nil, fmt.Errorf("create host cert: %w", err)
-	}
-
-	return &tls.Certificate{
-		Certificate: [][]byte{certDER, cc.ca.Certificate().Raw},
-		PrivateKey:  key,
-	}, nil
+	return template, nil
 }
 
 func (ca *CA) TLSCertificate() tls.Certificate {

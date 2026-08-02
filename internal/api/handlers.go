@@ -152,8 +152,14 @@ func (h *Handler) streamSelect(ctx context.Context, w http.ResponseWriter, flush
 	case <-ping.C:
 		return writeSSEPing(w, flusher)
 	case entry, ok := <-ch:
-		return ok && writeSSE(w, flusher, entry)
+		return h.writeStreamEntry(w, flusher, entry, ok)
 	}
+}
+
+// writeStreamEntry writes a live entry to the SSE client, reporting whether
+// the stream should continue.
+func (h *Handler) writeStreamEntry(w http.ResponseWriter, flusher http.Flusher, entry *capture.CapturedEntry, ok bool) bool {
+	return ok && writeSSE(w, flusher, entry)
 }
 
 // backfillSSE replays the N most recent entries to a newly connected SSE
@@ -304,16 +310,8 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := replayClient
 	start := time.Now()
-	resp, err := client.Do(req) // #nosec G704 -- replay is an explicit feature: it resends a captured request to its stored URL
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-		return
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, replayMaxBody))
+	resp, respBody, err := performReplay(req)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -325,4 +323,20 @@ func (h *Handler) ReplayRequest(w http.ResponseWriter, r *http.Request) {
 		"body":        string(respBody),
 		"duration_ms": time.Since(start).Milliseconds(),
 	})
+}
+
+// performReplay sends the replay request and reads up to replayMaxBody bytes of
+// the response.
+func performReplay(req *http.Request) (resp *http.Response, respBody []byte, err error) {
+	resp, err = replayClient.Do(req) // #nosec G704 -- replay is an explicit feature: it resends a captured request to its stored URL
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err = io.ReadAll(io.LimitReader(resp.Body, replayMaxBody))
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp, respBody, nil
 }

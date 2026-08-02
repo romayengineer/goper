@@ -65,16 +65,10 @@ func newJSONBodyWriter(dir string, fs FileSystem) *JSONBodyWriter {
 }
 
 func (w *JSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
-	body, ok := jsonBody(entry)
+	pretty, ok := indentJSON(entry)
 	if !ok {
 		return nil
 	}
-
-	var pretty bytes.Buffer
-	if err := json.Indent(&pretty, body, "", "  "); err != nil {
-		return nil // not valid JSON, skip
-	}
-	pretty.WriteByte('\n')
 
 	domainDir, err := ensureOutputDir(w.fs, w.dir, entry.Host)
 	if err != nil {
@@ -82,10 +76,27 @@ func (w *JSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
 	}
 
 	path := filepath.Join(domainDir, string(entry.ID)+".json")
-	if err := w.fs.WriteFile(path, pretty.Bytes(), 0o644); err != nil {
+	if err := w.fs.WriteFile(path, pretty, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
+}
+
+// indentJSON pretty-prints the entry body; ok is false when the response is
+// not valid JSON.
+func indentJSON(entry *capture.CapturedEntry) ([]byte, bool) {
+	body, ok := jsonBody(entry)
+	if !ok {
+		return nil, false
+	}
+
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, body, "", "  "); err != nil {
+		return nil, false // not valid JSON, skip
+	}
+	pretty.WriteByte('\n')
+
+	return pretty.Bytes(), true
 }
 
 // NDJSONBodyWriter appends each JSON response body as a single compact
@@ -114,8 +125,12 @@ func (w *NDJSONBodyWriter) WriteEntry(entry *capture.CapturedEntry) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(domainDir, "responses.jsonl")
 
+	return w.appendLine(filepath.Join(domainDir, "responses.jsonl"), line)
+}
+
+// appendLine appends a newline-terminated line to the per-domain JSONL file.
+func (w *NDJSONBodyWriter) appendLine(path string, line []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

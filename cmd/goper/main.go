@@ -69,6 +69,20 @@ func run(cfg *config.Config) int {
 	go runServer("proxy server error", proxyServer)
 	go runServer("API server error", apiServer)
 
+	logReady(cfg, caPEM)
+
+	sig := <-sigCh
+	slog.Info("shutting down", "signal", sig)
+
+	shutdownTransparent(cfg, iptMgr)
+
+	slog.Info("stopped")
+	return 0
+}
+
+// logReady reports that the servers are up and, when a CA certificate is
+// available, where to download it.
+func logReady(cfg *config.Config, caPEM []byte) {
 	slog.Info("ready",
 		"proxy", cfg.Port,
 		"api", cfg.APIPort,
@@ -78,14 +92,6 @@ func run(cfg *config.Config) int {
 			"url", api.CAURL(cfg.APIPort),
 		)
 	}
-
-	sig := <-sigCh
-	slog.Info("shutting down", "signal", sig)
-
-	shutdownTransparent(cfg, iptMgr)
-
-	slog.Info("stopped")
-	return 0
 }
 
 // serverRunner is satisfied by both the proxy and API servers.

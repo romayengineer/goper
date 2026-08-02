@@ -92,15 +92,27 @@ func (s *Server) runTransparent(l net.Listener) error {
 	)
 
 	for {
-		conn, err := l.Accept()
+		conn, err := acceptOnce(l)
 		if err != nil {
-			if acceptRetryable(err) {
-				time.Sleep(10 * time.Millisecond)
-				continue
-			}
 			return err
 		}
 		go s.handleTransparentConn(conn)
+	}
+}
+
+// acceptOnce accepts one connection, retrying transient timeouts until a
+// connection or a fatal error arrives.
+func acceptOnce(l net.Listener) (net.Conn, error) {
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			if !acceptRetryable(err) {
+				return nil, err
+			}
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		return conn, nil
 	}
 }
 
@@ -148,11 +160,17 @@ func (s *Server) handleTransparentConn(conn net.Conn) {
 	// Clear the peek deadline; the proxied session is long-lived.
 	_ = conn.SetReadDeadline(time.Time{})
 
-	if first[0] == 0x16 {
+	s.dispatchTransparent(first[0], br, conn)
+}
+
+// dispatchTransparent routes a transparent connection to TLS or HTTP handling
+// based on the first byte (0x16 = TLS handshake record).
+func (s *Server) dispatchTransparent(first byte, br *bufio.Reader, conn net.Conn) {
+	if first == 0x16 {
 		s.handleTLSTransparent(br, conn)
-	} else {
-		s.handleHTTPTransparent(br, conn)
+		return
 	}
+	s.handleHTTPTransparent(br, conn)
 }
 
 func (s *Server) handleHTTPTransparent(br *bufio.Reader, conn net.Conn) {

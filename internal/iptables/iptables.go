@@ -70,26 +70,34 @@ func (m *Manager) Setup() error {
 	slog.Info("installing iptables rules")
 
 	for _, r := range m.rules {
-		exists, err := m.ruleExists(r)
-		if err != nil {
-			return fmt.Errorf("check rule existence: %w", err)
+		if err := m.ensureRule(r); err != nil {
+			return err
 		}
-		if exists {
-			continue
-		}
-
-		args := append([]string{"-t", r.table, "-A", r.chain}, r.spec...)
-		out, err := m.runner.Run("iptables", args...)
-		if err != nil {
-			return fmt.Errorf("iptables %s: %s: %w", strings.Join(args, " "), string(out), err)
-		}
-		slog.Debug("rule added",
-			"table", r.table,
-			"chain", r.chain,
-			"spec", strings.Join(r.spec, " "),
-		)
 	}
 
+	return nil
+}
+
+// ensureRule adds a rule unless it already exists.
+func (m *Manager) ensureRule(r rule) error {
+	exists, err := m.ruleExists(r)
+	if err != nil {
+		return fmt.Errorf("check rule existence: %w", err)
+	}
+	if exists {
+		return nil
+	}
+
+	args := append([]string{"-t", r.table, "-A", r.chain}, r.spec...)
+	out, err := m.runner.Run("iptables", args...)
+	if err != nil {
+		return fmt.Errorf("iptables %s: %s: %w", strings.Join(args, " "), string(out), err)
+	}
+	slog.Debug("rule added",
+		"table", r.table,
+		"chain", r.chain,
+		"spec", strings.Join(r.spec, " "),
+	)
 	return nil
 }
 

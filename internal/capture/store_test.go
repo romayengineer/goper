@@ -419,20 +419,21 @@ func TestSubscribersSurviveClear(t *testing.T) {
 	defer rb.Unsubscribe(ch)
 
 	rb.Push(newTestEntry("a"))
-	select {
-	case e := <-ch:
-		assert.Equal(t, EntryID("a"), e.ID)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for pre-clear event")
-	}
+	awaitSubscriberEvent(t, ch, EntryID("a"), "pre-clear event")
 
 	rb.Clear()
 	rb.Push(newTestEntry("b"))
+	awaitSubscriberEvent(t, ch, EntryID("b"), "subscribers should keep receiving events after Clear")
+}
 
+// awaitSubscriberEvent waits for one event on ch and asserts it matches want,
+// failing the test on timeout.
+func awaitSubscriberEvent(t *testing.T, ch <-chan *CapturedEntry, want EntryID, msg string) {
+	t.Helper()
 	select {
 	case e := <-ch:
-		assert.Equal(t, EntryID("b"), e.ID, "subscribers should keep receiving events after Clear")
+		assert.Equal(t, want, e.ID, msg)
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for post-clear event")
+		t.Fatal("timed out waiting for " + msg)
 	}
 }

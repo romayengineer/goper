@@ -152,8 +152,11 @@ func IsJSONContentType(contentType string) bool {
 	if i := strings.Index(ct, ";"); i >= 0 {
 		ct = ct[:i]
 	}
-	ct = strings.TrimSpace(ct)
+	return isJSONMimeType(strings.TrimSpace(ct))
+}
 
+// isJSONMimeType reports whether a mime type (no parameters) denotes JSON.
+func isJSONMimeType(ct string) bool {
 	return ct == "application/json" ||
 		ct == "text/json" ||
 		strings.HasSuffix(ct, "+json") ||

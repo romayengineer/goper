@@ -55,13 +55,10 @@ func peekTLSRecord(r *bufio.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("peek TLS record header: %w", err)
 	}
-	if header[0] != 0x16 {
-		return nil, fmt.Errorf("not a TLS handshake record (0x%02x)", header[0])
-	}
 
-	recordLen := int(header[3])<<8 | int(header[4])
-	if recordLen <= 0 {
-		return nil, fmt.Errorf("invalid TLS record length %d", recordLen)
+	recordLen, err := tlsRecordHeader(header)
+	if err != nil {
+		return nil, err
 	}
 
 	data, err := r.Peek(5 + recordLen)
@@ -69,6 +66,20 @@ func peekTLSRecord(r *bufio.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("peek TLS record: %w", err)
 	}
 	return data, nil
+}
+
+// tlsRecordHeader parses a 5-byte TLS record header, returning the record
+// length or an error describing the invalid header.
+func tlsRecordHeader(header []byte) (int, error) {
+	if header[0] != 0x16 {
+		return 0, fmt.Errorf("not a TLS handshake record (0x%02x)", header[0])
+	}
+
+	recordLen := int(header[3])<<8 | int(header[4])
+	if recordLen <= 0 {
+		return 0, fmt.Errorf("invalid TLS record length %d", recordLen)
+	}
+	return recordLen, nil
 }
 
 func parseClientHello(data []byte) *ClientHello {
@@ -107,15 +118,10 @@ func helloFromSNI(data []byte, offset, extensionsLen int) *ClientHello {
 // offset of the extensions block and its length, or ok=false if the data is
 // truncated.
 func skipClientHelloFixed(data []byte, offset int) (extOffset, extLen int, ok bool) {
-	if offset+2 > len(data) {
+	offset, ok = skipClientHelloVersionRandom(data, offset)
+	if !ok {
 		return 0, 0, false
 	}
-	offset += 2
-
-	if offset+32 > len(data) {
-		return 0, 0, false
-	}
-	offset += 32
 
 	offset, variableOK := skipClientHelloVariable(data, offset)
 	if !variableOK {
@@ -128,6 +134,14 @@ func skipClientHelloFixed(data []byte, offset int) (extOffset, extLen int, ok bo
 	extensionsLen := int(data[offset])<<8 | int(data[offset+1])
 
 	return offset + 2, extensionsLen, true
+}
+
+// skipClientHelloVersionRandom skips the TLS version and random fields.
+func skipClientHelloVersionRandom(data []byte, offset int) (int, bool) {
+	if offset+34 > len(data) {
+		return 0, false
+	}
+	return offset + 34, true
 }
 
 // skipClientHelloVariable consumes the variable-length session id, cipher

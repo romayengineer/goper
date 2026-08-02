@@ -16,7 +16,7 @@ linters:
   settings:
     gocyclo:
       # min-complexity is the maximum allowed complexity.
-      min-complexity: 5
+      min-complexity: 4
 
 formatters:
   default: none

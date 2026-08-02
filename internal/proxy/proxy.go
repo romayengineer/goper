@@ -168,22 +168,29 @@ func (s *Server) handleRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Re
 // regexes against the full request URL. With no filters set, everything is
 // captured (the historical behavior).
 func (s *Server) shouldCapture(r *http.Request) bool {
-	if s.includeRE != nil && !s.includeRE.MatchString(r.URL.String()) {
+	url := r.URL.String()
+	if !s.regexAllows(s.includeRE, url) {
 		return false
 	}
-	if s.excludeRE != nil && s.excludeRE.MatchString(r.URL.String()) {
+	if s.regexExcludes(s.excludeRE, url) {
 		return false
 	}
 	return true
 }
 
-func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-	data, ok := ctx.UserData.(captureCtx)
-	if !ok {
-		return resp
-	}
+// regexAllows reports whether url passes an include filter (nil = allow all).
+func (s *Server) regexAllows(re *regexp.Regexp, url string) bool {
+	return re == nil || re.MatchString(url)
+}
 
-	if resp == nil {
+// regexExcludes reports whether url matches an exclude filter (nil = none).
+func (s *Server) regexExcludes(re *regexp.Regexp, url string) bool {
+	return re != nil && re.MatchString(url)
+}
+
+func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+	data, ok := s.responseData(ctx, resp)
+	if !ok {
 		return resp
 	}
 
@@ -204,6 +211,15 @@ func (s *Server) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 	s.captureResponse(data, resp, bodyBytes)
 
 	return resp
+}
+
+// responseData extracts the capture context, skipping nil responses.
+func (s *Server) responseData(ctx *goproxy.ProxyCtx, resp *http.Response) (captureCtx, bool) {
+	data, ok := ctx.UserData.(captureCtx)
+	if !ok || resp == nil {
+		return captureCtx{}, false
+	}
+	return data, true
 }
 
 // fixContentLength rewrites ContentLength after capture: a truncated body has

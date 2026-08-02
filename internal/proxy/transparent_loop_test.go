@@ -60,14 +60,26 @@ func TestSingleConnListenerSecondAcceptBlocksUntilClose(t *testing.T) {
 		done <- err
 	}()
 
+	assertBlocks(t, done)
+
+	require.NoError(t, l.Close())
+
+	assertErrorEventually(t, done)
+}
+
+// assertBlocks asserts that done does not receive within 100ms.
+func assertBlocks(t *testing.T, done <-chan error) {
+	t.Helper()
 	select {
 	case <-done:
 		t.Fatal("second Accept must block until Close")
 	case <-time.After(100 * time.Millisecond):
 	}
+}
 
-	require.NoError(t, l.Close())
-
+// assertErrorEventually asserts that done receives an error within 1s.
+func assertErrorEventually(t *testing.T, done <-chan error) {
+	t.Helper()
 	select {
 	case err := <-done:
 		require.Error(t, err)
